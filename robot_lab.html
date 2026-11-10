@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Robot Lab — Developer Preview</title>
+<style>
+/* Shares the same design tokens and robot-avatar CSS as the main game page
+   (templates/index.html) so previews here look identical to real gameplay.
+   This page is intentionally separate and NOT linked from normal gameplay
+   navigation -- see Bug 6: Robot Lab controls must never appear during
+   normal play, and must never be able to touch real game state. Nothing
+   on this page calls any /api/game/* or /api/player/* endpoint. */
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --font-sans:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --font-display:'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --bg:#0b0c08; --panel:#15160f; --panel2:#1b1d14; --border:#272a1e; --border-lt:#343628;
+  --text:#eceee0; --dim:#9a9c86; --dim2:#6e705a;
+  --accent:#c7e04a; --accent-lt:#d7f75b; --accent-dim:rgba(215,247,91,.16);
+  --win:#4caf50; --loss:#e0665f; --draw:#d4b43a; --amber:#d4b43a;
+  --radius:14px; --fast:.18s ease; --med:.3s ease;
+}
+html,body{background:var(--bg);color:var(--text);font-family:var(--font-sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+.brand-title,.card-title{font-family:var(--font-display);}
+.btn:focus-visible,a:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:3px;}
+body{min-height:100vh;padding-bottom:40px;}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.001s !important;animation-iteration-count:1 !important;transition-duration:.001s !important;}}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px;}
+.hidden{display:none !important;}
+nav{border-bottom:1px solid var(--border);background:var(--panel2);}
+.nav-inner{display:flex;align-items:center;justify-content:space-between;height:58px;}
+/* Same wordmark treatment as the main game page (templates/index.html) --
+   kept in sync so the brand looks identical everywhere. This only affects
+   the top nav mark; nothing about the robot character below is touched. */
+.brand{display:flex;align-items:center;gap:10px;}
+.brand-mark{
+  width:28px;height:28px;border-radius:8px;background:#eceee0;color:#15160f;
+  font-size:10px;font-weight:800;letter-spacing:.01em;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+}
+.brand-text{display:flex;flex-direction:column;line-height:1.05;}
+.brand-title{font-size:14.5px;font-weight:800;letter-spacing:-.01em;color:var(--text);white-space:nowrap;}
+.brand-kicker{font-size:9px;font-weight:700;letter-spacing:.16em;color:var(--dim2);text-transform:uppercase;margin-top:2px;}
+@media (max-width:560px){
+  .brand-kicker{display:none;}
+  .brand-title{font-size:13px;}
+  .brand-mark{width:24px;height:24px;font-size:9px;border-radius:7px;}
+}
+.dev-badge{font-size:10px;background:rgba(245,185,66,.12);border:1px solid var(--amber);color:var(--amber);padding:3px 9px;border-radius:999px;font-weight:700;letter-spacing:.04em;margin-left:4px;}
+.btn{border:none;border-radius:9px;font-size:13px;font-weight:600;padding:7px 15px;cursor:pointer;transition:all var(--fast);}
+.btn-ghost{background:var(--panel);color:var(--text);border:1px solid var(--border);text-decoration:none;display:inline-block;}
+.btn-ghost:hover{background:var(--border);}
+
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin:18px 0;}
+.card-title{font-size:13px;font-weight:700;}
+.proto-badge{font-size:10px;background:var(--panel2);border:1px solid var(--border);color:var(--dim);padding:2px 8px;border-radius:999px;margin-left:8px;}
+.lab-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:4px;}
+.lab-sub{font-size:11.5px;color:var(--accent-lt);margin:6px 0 14px;}
+.lab-controls{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+.lab-controls label{font-size:11px;color:var(--dim);margin-right:6px;}
+.mode-select{background:var(--panel2);border:1px solid var(--border);color:var(--text);font-size:12.5px;font-weight:600;padding:6px 8px;border-radius:9px;cursor:pointer;}
+.range-input{width:140px;accent-color:var(--accent);}
+.lab-tiles{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-top:14px;}
+.lab-tile{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 4px 8px;text-align:center;cursor:pointer;transition:all var(--fast);}
+.lab-tile:hover{border-color:var(--border-lt);}
+.lab-tile.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+.lab-tile .robot-avatar{height:70px;}
+.lab-tile-label{font-size:10px;color:var(--dim);margin-top:2px;}
+@media (max-width:900px){.lab-tiles{grid-template-columns:repeat(4,1fr);}}
+
+.preview-stage{position:relative;height:280px;display:flex;align-items:center;justify-content:center;background:var(--panel2);border-radius:10px;margin-top:10px;overflow:hidden;}
+.speech{position:absolute;top:10px;left:10px;background:rgba(10,10,13,.85);border:1px solid var(--border-lt);padding:5px 11px;border-radius:9px;font-size:11.5px;max-width:70%;}
+.glass-crack{position:absolute;inset:0;z-index:4;opacity:0;pointer-events:none;transition:opacity .25s ease;}
+.glass-crack.active{opacity:1;animation:crackflash .5s ease;}
+.glass-crack svg{width:100%;height:100%;}
+@keyframes crackflash{0%{opacity:0;filter:brightness(3);}40%{opacity:1;filter:brightness(2);}100%{opacity:1;filter:brightness(1);}}
+.shard{fill:rgba(255,255,255,.04);stroke:rgba(255,255,255,.55);stroke-width:1;}
+.crackline{stroke:rgba(255,255,255,.8);stroke-width:1.4;fill:none;}
+
+.achievement-toast{position:fixed;top:14px;left:50%;transform:translateX(-50%) translateY(-120%);background:var(--panel);border:1px solid var(--amber);border-radius:12px;padding:12px 24px;text-align:center;z-index:300;transition:transform .4s cubic-bezier(.34,1.56,.64,1);box-shadow:0 8px 30px rgba(245,185,66,.15);}
+.achievement-toast.show{transform:translateX(-50%) translateY(0);}
+.ach-label{font-size:10px;letter-spacing:.1em;color:var(--amber);font-weight:700;}
+.ach-title{font-size:16px;font-weight:800;margin:3px 0;}
+.ach-sub{font-size:11.5px;color:var(--dim);}
+
+/* ── Robot avatar — identical to templates/index.html so previews match real gameplay ── */
+.robot-avatar{position:relative;width:140px;height:150px;margin:0 auto;}
+.robot-avatar.mini{transform:scale(.52);}
+.antenna{position:absolute;top:-20px;left:50%;transform:translateX(-50%);width:2px;height:16px;background:#3a3c48;}
+.antenna-dot{position:absolute;top:-6px;left:-3px;width:8px;height:8px;border-radius:50%;background:var(--accent-lt);box-shadow:0 0 8px var(--accent-lt);}
+.robot-head{width:118px;height:88px;background:#191a22;border:2px solid #2b2d39;border-radius:26px;position:relative;margin:0 auto;animation:breathe 3.4s ease-in-out infinite;transition:border-color var(--med),box-shadow var(--med);}
+@keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.eye{position:absolute;top:28px;width:20px;height:20px;border-radius:50%;background:var(--accent-lt);box-shadow:0 0 12px var(--accent-lt);transition:all .25s;animation:blink 5.4s infinite;}
+.eye-l{left:24px;} .eye-r{right:24px;}
+@keyframes blink{0%,91%,100%{transform:scaleY(1)}95%{transform:scaleY(.1)}}
+.brow{position:absolute;top:18px;width:20px;height:3px;border-radius:2px;background:transparent;transition:all var(--med);}
+.brow-l{left:22px;} .brow-r{right:22px;}
+.mouth{position:absolute;bottom:15px;left:50%;transform:translateX(-50%);width:32px;height:9px;border-bottom:3px solid var(--dim2);border-radius:0 0 16px 16px;transition:all var(--med);}
+.tear{position:absolute;top:46px;width:6px;height:10px;border-radius:50% 50% 50% 0;background:#7dd3fc;opacity:0;}
+.tear-l{left:32px;} .tear-r{right:32px;}
+.robot-body{width:84px;height:44px;background:#15161c;border:2px solid #2b2d39;border-radius:16px;margin:6px auto 0;position:relative;transition:all var(--med);}
+.chest-screen{position:absolute;inset:7px 22px;background:#0a0a0d;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--dim2);}
+.arm{position:absolute;top:4px;width:13px;height:20px;border-radius:7px;background:#191a22;border:2px solid #2b2d39;}
+.arm-l{left:-17px;} .arm-r{right:-17px;}
+
+.state-thinking .robot-head{animation:tilt 1.5s ease-in-out infinite;}
+@keyframes tilt{0%,100%{transform:rotate(0)}50%{transform:rotate(3deg)}}
+.state-thinking .eye{animation:lookaround 1.7s ease-in-out infinite;}
+@keyframes lookaround{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
+.state-thinking .mouth{width:14px;height:4px;border-radius:2px;border-bottom:none;background:var(--dim);}
+.state-reveal .eye{width:24px;height:24px;animation:pop .35s ease;}
+@keyframes pop{0%{transform:scale(.55)}60%{transform:scale(1.25)}100%{transform:scale(1)}}
+.state-reveal .mouth{width:15px;height:15px;border-radius:50%;border:3px solid var(--dim);background:transparent;}
+.state-laugh1 .eye,.state-laugh2 .eye,.state-laugh3 .eye{height:6px;border-radius:0 0 10px 10px;top:32px;}
+.state-laugh1 .mouth{width:40px;height:16px;border:2px solid var(--accent-lt);border-top:none;border-radius:0 0 20px 20px;background:rgba(123,130,245,.18);}
+.state-laugh2 .mouth{width:48px;height:20px;border:2px solid var(--accent-lt);border-top:none;border-radius:0 0 24px 24px;background:rgba(123,130,245,.25);}
+.state-laugh3 .eye{height:4px;top:34px;}
+.state-laugh3 .mouth{width:54px;height:26px;border:2px solid var(--accent-lt);border-top:none;border-radius:0 0 27px 27px;background:rgba(123,130,245,.32);}
+.state-laugh1 .robot-head,.state-laugh1 .robot-body{animation:shake-sm 1.2s ease-in-out infinite;}
+.state-laugh2 .robot-head,.state-laugh2 .robot-body{animation:shake-md .7s ease-in-out infinite;}
+.state-laugh3 .robot-head,.state-laugh3 .robot-body{animation:shake-lg .45s ease-in-out infinite;}
+@keyframes shake-sm{0%,100%{transform:translateX(0)}50%{transform:translateX(2px)}}
+@keyframes shake-md{0%,100%{transform:translateX(0) rotate(0)}50%{transform:translateX(-3px) rotate(-1.5deg)}}
+@keyframes shake-lg{0%,100%{transform:translateX(0) rotate(0)}50%{transform:translateX(5px) rotate(2.5deg)}}
+.state-crying .eye{opacity:.85;border-radius:50% 50% 40% 40%;}
+.state-crying .mouth{border-bottom:none;border-top:3px solid var(--dim2);border-radius:16px 16px 0 0;}
+.state-crying .tear{opacity:1;animation:dripfall 1.5s ease-in infinite;}
+.state-crying .tear-r{animation-delay:.5s;}
+@keyframes dripfall{0%{transform:translateY(0);opacity:0}25%{opacity:1}100%{transform:translateY(24px);opacity:0}}
+.state-crying .robot-head,.state-crying .robot-body{transform:translateY(4px) rotate(-2deg);}
+.state-smug .eye-r{height:5px;top:33px;border-radius:3px;}
+.state-smug .mouth{width:18px;height:8px;left:60%;border-radius:0 0 10px 3px;border-bottom:3px solid var(--accent-lt);transform:translateX(-50%) rotate(-8deg);}
+.state-anger2 .eye{background:#fbbf24;box-shadow:0 0 12px #fbbf24;}
+.state-anger2 .brow{background:#fbbf24;transform:rotate(12deg);}
+.state-anger2 .brow-r{transform:rotate(-12deg);}
+.state-anger2 .mouth{border-radius:0;border-bottom:3px solid var(--dim);width:26px;}
+.state-anger2 .robot-head{animation:shake-sm 1.4s ease-in-out infinite;}
+.state-anger3 .eye{background:#f59e0b;box-shadow:0 0 14px #f59e0b;}
+.state-anger3 .brow{background:#f59e0b;transform:rotate(18deg);top:16px;}
+.state-anger3 .brow-r{transform:rotate(-18deg);}
+.state-anger3 .mouth{border-radius:0;border-top:3px solid var(--dim);border-bottom:none;width:28px;}
+.state-anger3 .robot-head,.state-anger3 .robot-body{animation:shake-sm 1s ease-in-out infinite;}
+.state-anger5 .eye{background:#f97316;box-shadow:0 0 18px #f97316;animation:pulse-glow 1s ease-in-out infinite;}
+.state-anger5 .brow{background:#f97316;transform:rotate(24deg);top:15px;}
+.state-anger5 .brow-r{transform:rotate(-24deg);}
+.state-anger5 .mouth{border-radius:0;border-top:3px solid var(--dim);border-bottom:none;width:30px;}
+.state-anger5 .robot-head,.state-anger5 .robot-body{animation:shake-md .6s ease-in-out infinite;}
+@keyframes pulse-glow{0%,100%{box-shadow:0 0 10px currentColor}50%{box-shadow:0 0 22px currentColor}}
+.state-anger7 .eye{background:#ef4444;box-shadow:0 0 20px #ef4444;animation:pulse-glow .8s ease-in-out infinite;}
+.state-anger7 .brow{background:#ef4444;transform:rotate(30deg);top:14px;}
+.state-anger7 .brow-r{transform:rotate(-30deg);}
+.state-anger7 .mouth{clip-path:polygon(0 0,15% 60%,30% 10%,45% 60%,60% 10%,75% 60%,100% 0,100% 100%,0 100%);width:32px;height:12px;background:var(--dim2);border:none;}
+.state-anger7 .robot-head,.state-anger7 .robot-body{animation:shake-lg .4s ease-in-out infinite;}
+.state-anger9 .eye{background:#dc2626;box-shadow:0 0 26px #dc2626;animation:pulse-glow .5s ease-in-out infinite;}
+.state-anger9 .brow{background:#dc2626;transform:rotate(36deg);top:13px;}
+.state-anger9 .brow-r{transform:rotate(-36deg);}
+.state-anger9 .mouth{clip-path:polygon(0 0,15% 60%,30% 10%,45% 60%,60% 10%,75% 60%,100% 0,100% 100%,0 100%);width:36px;height:14px;background:#7a1f1f;border:none;}
+.state-anger9 .robot-head{animation:shake-lg .3s ease-in-out infinite;box-shadow:0 0 30px rgba(220,38,38,.35);}
+.state-anger9 .robot-body{animation:shake-lg .3s ease-in-out infinite;}
+.state-smash .eye{width:28px;height:28px;background:#dc2626;box-shadow:0 0 34px #dc2626;animation:pulse-glow .3s ease-in-out infinite;}
+.state-smash .brow{background:#dc2626;transform:rotate(40deg);top:10px;height:4px;}
+.state-smash .brow-r{transform:rotate(-40deg);}
+.state-smash .mouth{clip-path:polygon(0 0,15% 70%,30% 5%,45% 70%,60% 5%,75% 70%,100% 0,100% 100%,0 100%);width:42px;height:18px;background:#5c1414;border:none;}
+.state-smash .robot-head{animation:violent-shake .4s ease-in-out 5;box-shadow:0 0 40px rgba(220,38,38,.5);}
+.state-smash .robot-body{animation:violent-shake .4s ease-in-out 5;}
+@keyframes violent-shake{0%,100%{transform:translateX(0) rotate(0)}25%{transform:translateX(-6px) rotate(-5deg)}75%{transform:translateX(6px) rotate(5deg)}}
+</style>
+</head>
+<body>
+
+<div class="achievement-toast" id="achievement-toast">
+  <div class="ach-label">ACHIEVEMENT UNLOCKED</div>
+  <div class="ach-title">You broke the robot!</div>
+  <div class="ach-sub">10 wins in a row. It will not forget this.</div>
+</div>
+
+<nav>
+  <div class="wrap nav-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">RPS</span>
+      <span class="brand-text">
+        <span class="brand-title">Rock Paper Scissors</span>
+        <span class="brand-kicker">Arena</span>
+      </span>
+      <span class="dev-badge">DEVELOPER ONLY</span>
+    </div>
+    <a class="btn btn-ghost" href="/" style="display:inline-flex;align-items:center;gap:7px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12H4m6-6-6 6 6 6"/></svg> Back to game</a>
+  </div>
+</nav>
+
+<div class="wrap">
+  <div class="card">
+    <div class="lab-head">
+      <div><span class="card-title">Robot lab</span><span class="proto-badge">Prototype</span></div>
+      <div class="lab-controls">
+        <span><label>Demo AI</label>
+          <select id="lab-demo-ai" class="mode-select">
+            <option>Random</option><option>Always Rock</option><option>Always Paper</option><option>Always Scissors</option>
+          </select>
+        </span>
+        <span><label>Streak <span id="lab-streak-val">0</span></label>
+          <input type="range" min="0" max="12" value="0" class="range-input" id="lab-streak-slider">
+        </span>
+      </div>
+    </div>
+    <div class="lab-sub">Pick an expression to preview it below. The 10-win tile also plays the glass-break sequence. This page never touches real player stats, the leaderboard, or an active match.</div>
+
+    <div class="preview-stage">
+      <div class="speech" id="robot-speech">Your move, human.</div>
+      <div class="robot-avatar state-idle" id="robot-avatar">
+        <span class="antenna"><span class="antenna-dot"></span></span>
+        <div class="robot-head"><div class="eye eye-l"></div><div class="eye eye-r"></div><div class="brow brow-l"></div><div class="brow brow-r"></div><div class="mouth"></div><div class="tear tear-l"></div><div class="tear tear-r"></div></div>
+        <div class="robot-body"><span class="arm arm-l"></span><span class="arm arm-r"></span><div class="chest-screen" id="robot-chest">?</div></div>
+      </div>
+      <div class="glass-crack" id="robot-crack"></div>
+    </div>
+
+    <div class="lab-tiles" id="lab-tiles"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const ROBOT_CAPTIONS = {
+  idle: "Your move, human.", thinking: "Calculating optimal chaos…", reveal: "Here it comes…",
+  laugh1: "Ha! Rookie move.", laugh2: "Too easy, human!", laugh3: "I could do this all day!",
+  crying: "My circuits… why did I pick that?", smug: "Hah. We think alike.",
+  anger2: "Lucky streak. Won't last.", anger3: "This is getting annoying.", anger5: "I am NOT amused.",
+  anger7: "You will regret this.", anger9: "ENOUGH. HUMAN.", smash: "NOOOOOO!!"
+};
+const LAB_TILES = [
+  {id:'idle', label:'Idle'}, {id:'thinking', label:'Thinking'}, {id:'reveal', label:'Reveal'},
+  {id:'laugh1', label:'Laugh 1'}, {id:'laugh2', label:'Laugh 2'}, {id:'laugh3', label:'Laugh 3'},
+  {id:'crying', label:'Crying'}, {id:'smug', label:'Smug (draw)'},
+  {id:'anger2', label:'Anger 2 wins'}, {id:'anger3', label:'Anger 3 wins'}, {id:'anger5', label:'Anger 5 wins'},
+  {id:'anger7', label:'Anger 7 wins'}, {id:'anger9', label:'Anger 9 wins'}, {id:'smash', label:'10 wins: smash'}
+];
+
+function robotInnerHTML() {
+  return `<span class="antenna"><span class="antenna-dot"></span></span>
+    <div class="robot-head"><div class="eye eye-l"></div><div class="eye eye-r"></div>
+      <div class="brow brow-l"></div><div class="brow brow-r"></div><div class="mouth"></div>
+      <div class="tear tear-l"></div><div class="tear tear-r"></div></div>
+    <div class="robot-body"><span class="arm arm-l"></span><span class="arm arm-r"></span>
+      <div class="chest-screen">?</div></div>`;
+}
+
+function setRobotState(state) {
+  $('robot-avatar').className = 'robot-avatar state-' + state;
+  $('robot-speech').textContent = ROBOT_CAPTIONS[state] || '';
+}
+
+function crackSVG() {
+  return `<svg viewBox="0 0 300 280" preserveAspectRatio="none">
+    <polygon class="shard" points="0,0 120,0 90,80 20,60"/>
+    <polygon class="shard" points="120,0 300,0 300,90 150,110 90,80"/>
+    <polygon class="shard" points="0,0 20,60 0,160"/>
+    <polygon class="shard" points="0,160 20,60 90,80 60,180 0,220"/>
+    <polygon class="shard" points="90,80 150,110 140,200 60,180"/>
+    <polygon class="shard" points="150,110 300,90 300,220 180,240 140,200"/>
+    <polygon class="shard" points="0,220 60,180 90,260 0,280"/>
+    <polygon class="shard" points="60,180 140,200 180,240 120,280 90,260"/>
+    <polygon class="shard" points="180,240 300,220 300,280 120,280"/>
+    <line class="crackline" x1="150" y1="130" x2="20" y2="60"/>
+    <line class="crackline" x1="150" y1="130" x2="300" y2="90"/>
+    <line class="crackline" x1="150" y1="130" x2="60" y2="180"/>
+    <line class="crackline" x1="150" y1="130" x2="180" y2="240"/>
+    <line class="crackline" x1="150" y1="130" x2="90" y2="260"/>
+    <line class="crackline" x1="150" y1="130" x2="150" y2="0"/>
+  </svg>`;
+}
+function triggerGlassBreak() {
+  const el = $('robot-crack');
+  el.innerHTML = crackSVG();
+  el.classList.remove('active'); void el.offsetWidth;
+  el.classList.add('active');
+  setTimeout(() => el.classList.remove('active'), 6000);
+}
+function showAchievementToast() {
+  const t = $('achievement-toast');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 5000);
+}
+
+function buildLabTiles() {
+  const grid = $('lab-tiles');
+  grid.innerHTML = '';
+  LAB_TILES.forEach(t => {
+    const tile = document.createElement('div');
+    tile.className = 'lab-tile';
+    tile.dataset.state = t.id;
+    tile.innerHTML = `<div class="robot-avatar mini state-${t.id}">${robotInnerHTML()}</div><div class="lab-tile-label">${t.label}</div>`;
+    tile.addEventListener('click', () => previewLabState(t.id, tile));
+    grid.appendChild(tile);
+  });
+}
+
+function previewLabState(stateId, tileEl) {
+  document.querySelectorAll('.lab-tile').forEach(t => t.classList.remove('selected'));
+  if (tileEl) tileEl.classList.add('selected');
+  setRobotState(stateId);
+  if (stateId === 'smash') { triggerGlassBreak(); showAchievementToast(); }
+}
+
+$('lab-streak-slider').addEventListener('input', (e) => {
+  const val = parseInt(e.target.value);
+  $('lab-streak-val').textContent = val;
+  let state = 'idle';
+  if (val >= 10) state = 'smash';
+  else if (val >= 9) state = 'anger9';
+  else if (val >= 7) state = 'anger7';
+  else if (val >= 5) state = 'anger5';
+  else if (val >= 3) state = 'anger3';
+  else if (val >= 2) state = 'anger2';
+  else if (val === 1) state = 'crying';
+  previewLabState(state, document.querySelector(`.lab-tile[data-state="${state}"]`));
+});
+
+buildLabTiles();
+</script>
+</body>
+</html>
