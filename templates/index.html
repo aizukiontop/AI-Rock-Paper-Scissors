@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rps.club — Outsmart the machine</title>
+<script>
+// Applied before first paint to avoid a light/dark flash -- reads the
+// persisted theme choice (see applyTheme()/toggleTheme() further down)
+// synchronously, before the stylesheet below even evaluates.
+(function(){
+  try {
+    var t = localStorage.getItem('rps_theme');
+    if (!t) t = 'light';
+    document.documentElement.setAttribute('data-theme', t);
+  } catch(e) {}
+})();
+</script>
+<style>
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+/* ════════════════════════════════════════════════════════════════
+   DESIGN TOKENS -- same variable names the rest of this file (and the
+   robot's own CSS, pasted in further down unmodified) already relies on,
+   so re-theming only ever means changing values here, never touching
+   component CSS. Values below follow the Figma design (lime/ink palette,
+   Space Grotesk display + DM Sans body). Light values are the :root
+   defaults; [data-theme="dark"] overrides them for dark mode.
+   ════════════════════════════════════════════════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --font-sans:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --font-display:'Space Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+
+  --bg:#f7f8f2; --panel:#ffffff; --panel2:#f0f1e9; --border:#e3e5dc; --border-lt:#cfd3c4;
+  --text:#252923; --dim:#8a8e83; --dim2:#929688;
+  --accent:#7e973b; --accent-lt:#d7f75b; --accent-dim:rgba(126,151,59,.14);
+  --win:#4caf50; --loss:#d9534f; --draw:#c9a227; --amber:#c9a227;
+  --radius:14px; --radius-sm:9px; --fast:.18s ease; --med:.3s ease;
+
+  /* AI panel is always a dark forest-green/near-black, in both themes;
+     the human panel is the one that actually flips between themes. */
+  --panel-ai:#191c13; --text-on-ai:#f3f4ec; --dim-on-ai:#9a9d87; --border-on-ai:#2a2c20;
+  --panel-human:#f6f7ee; --text-on-human:#252923;
+
+  --sidebar-bg:#f0f1e9; --sidebar-active:#252923;
+}
+[data-theme="dark"]{
+  --bg:#0b0c08; --panel:#15160f; --panel2:#1b1d14; --border:#272a1e; --border-lt:#343628;
+  --text:#eceee0; --dim:#9a9c86; --dim2:#6e705a;
+  --accent:#c7e04a; --accent-lt:#d7f75b; --accent-dim:rgba(215,247,91,.16);
+  --win:#4caf50; --loss:#e0665f; --draw:#d4b43a; --amber:#d4b43a;
+
+  --panel-ai:#0a0b06; --text-on-ai:#f3f4ec; --dim-on-ai:#9a9d87; --border-on-ai:#24261b;
+  --panel-human:#1b1d14; --text-on-human:#eceee0;
+
+  --sidebar-bg:#0e0f09; --sidebar-active:#1d1f14;
+}
+html,body{background:var(--bg);color:var(--text);font-family:var(--font-sans);font-size:14px;line-height:1.5;transition:background var(--med),color var(--med);-webkit-font-smoothing:antialiased;}
+body{min-height:100vh;}
+h1,.sb-brand-title,.panel-score,.status-headline,.play-card h2,.stat-val,.modal-card h2{font-family:var(--font-display);}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:3px;}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001s !important;animation-iteration-count:1 !important;transition-duration:.001s !important;}
+}
+button,select,input{font-family:inherit;}
+.hidden{display:none !important;}
+a{color:inherit;text-decoration:none;}
+
+/* ── App shell: fixed sidebar + scrolling main column ───────────── */
+.app-shell{display:flex;min-height:100vh;}
+.sidebar{
+  width:224px;flex-shrink:0;background:var(--sidebar-bg);border-right:1px solid var(--border);
+  padding:24px 16px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;
+}
+.main-area{flex:1;min-width:0;padding:22px 32px 48px;}
+
+.sb-brand{display:flex;align-items:center;gap:10px;margin-bottom:26px;}
+.sb-mark{width:40px;height:40px;border-radius:12px;background:var(--sidebar-active);color:var(--accent-lt);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.sb-brand-text{display:flex;flex-direction:column;line-height:1.1;}
+.sb-brand-title{font-size:16px;font-weight:800;}
+.sb-brand-title .dot{color:var(--accent);}
+.sb-brand-kicker{font-size:9px;font-weight:700;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;margin-top:2px;}
+
+.sb-section-label{font-size:10px;font-weight:700;letter-spacing:.1em;color:var(--dim2);text-transform:uppercase;margin:4px 0 10px;}
+.sb-nav{display:flex;flex-direction:column;gap:4px;margin-bottom:22px;}
+.nav-item{
+  display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:8px;border:none;background:transparent;
+  color:var(--dim);font-size:12.5px;font-weight:600;cursor:pointer;text-align:left;width:100%;transition:all var(--fast);
+}
+.nav-item:hover{background:var(--panel2);color:var(--text);}
+.nav-item.active{background:var(--sidebar-active);color:var(--text-on-ai);box-shadow:0 3px 5px rgba(37,41,35,.05);}
+.nav-item .pill{margin-left:auto;font-size:9px;background:var(--accent-dim);color:var(--accent);padding:2px 7px;border-radius:999px;font-weight:700;}
+.nav-item .live-dot{margin-left:auto;width:6px;height:6px;border-radius:50%;background:var(--accent);}
+
+.sb-spacer{flex:1;}
+.challenge-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px;}
+.challenge-card h4{font-size:14px;font-weight:800;margin-bottom:2px;}
+.challenge-card p{font-size:11.5px;color:var(--dim);line-height:1.5;margin-bottom:12px;}
+.challenge-bar{height:4px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:8px;}
+.challenge-bar-fill{height:100%;background:var(--accent);border-radius:3px;transition:width var(--med);}
+.challenge-foot{display:flex;justify-content:space-between;font-size:9.5px;color:var(--dim2);text-transform:uppercase;letter-spacing:.05em;}
+.howto-link{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--dim);padding:8px 4px;margin-bottom:14px;}
+
+.sb-user{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;}
+.sb-user-avatar{width:32px;height:32px;border-radius:9px;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;}
+.sb-user-text{display:flex;flex-direction:column;line-height:1.25;min-width:0;}
+.sb-user-name{font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sb-user-sub{font-size:10.5px;color:var(--dim2);}
+.sb-user-dot{margin-left:auto;width:7px;height:7px;border-radius:50%;background:var(--accent);flex-shrink:0;}
+
+/* ── Top bar ─────────────────────────────────────────────────────── */
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:10px;}
+.breadcrumb{font-size:12.5px;color:var(--dim2);}
+.breadcrumb .current{color:var(--text);font-weight:600;}
+.topbar-right{display:flex;align-items:center;gap:14px;}
+.status-pill{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--dim);text-transform:uppercase;}
+.status-pill .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent);}
+.icon-btn{width:30px;height:30px;border-radius:9px;border:1px solid var(--border);background:var(--panel);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;transition:all var(--fast);}
+.icon-btn:hover{background:var(--panel2);}
+
+/* ── Hero ────────────────────────────────────────────────────────── */
+.hero{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:26px;flex-wrap:wrap;}
+.hero-eyebrow{font-size:10.5px;font-weight:700;letter-spacing:.1em;color:var(--dim2);text-transform:uppercase;margin-bottom:10px;}
+.hero h1{font-size:40px;font-weight:800;letter-spacing:-.01em;line-height:1.05;}
+.hero h1 .muted{color:var(--dim2);}
+.hero-sub{font-size:14px;color:var(--dim);margin-top:8px;}
+.hero-badge{display:flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:9px 14px;font-size:11.5px;font-weight:700;letter-spacing:.04em;color:var(--dim);white-space:nowrap;}
+
+@media (max-width:980px){
+  .sidebar{position:fixed;left:0;top:0;z-index:50;transform:translateX(-100%);transition:transform var(--med);box-shadow:0 0 40px rgba(0,0,0,.25);}
+  .sidebar.open{transform:translateX(0);}
+  .main-area{padding:16px 16px 40px;}
+  .hero h1{font-size:30px;}
+}
+@media (max-width:560px){
+  .hero h1{font-size:25px;}
+  .topbar-right{gap:8px;}
+}
+
+/* ── Arena card ──────────────────────────────────────────────────── */
+.arena-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:18px;}
+.arena-card-head{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border);font-size:11.5px;color:var(--dim);}
+.arena-card-head b{color:var(--text);}
+.arena-grid{display:grid;grid-template-columns:1fr 1fr;position:relative;}
+.vs-badge{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:54px;height:54px;border-radius:50%;background:var(--panel);border:1px solid var(--border-lt);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:var(--dim);z-index:5;box-shadow:0 2px 10px rgba(0,0,0,.08);}
+.vs-badge.win{color:var(--win);border-color:var(--win);} .vs-badge.loss{color:var(--loss);border-color:var(--loss);}
+.vs-badge.draw{color:var(--draw);border-color:var(--draw);} .vs-badge.count{font-size:22px;color:var(--accent);border-color:var(--accent);}
+
+.panel{position:relative;padding:20px 22px;min-height:360px;display:flex;flex-direction:column;}
+.panel-ai{background:var(--panel-ai);color:var(--text-on-ai);}
+.panel-human{background:var(--panel-human);color:var(--text-on-human);}
+.panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.panel-who{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;}
+.panel-who .avatar-chip{width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;}
+.panel-ai .avatar-chip{background:rgba(255,255,255,.08);}
+.panel-human .avatar-chip{background:var(--accent-dim);color:var(--accent);}
+.panel-who .tag{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-left:6px;}
+.panel-ai .tag{color:var(--dim-on-ai);}
+.panel-human .tag{color:var(--dim);}
+.panel-score{font-size:30px;font-weight:800;}
+.panel-score .of{font-size:14px;font-weight:600;opacity:.5;}
+
+.panel-stage{flex:1;display:flex;align-items:center;justify-content:center;position:relative;min-height:220px;}
+.speech{position:absolute;top:4px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.96);color:#1c1e15;border:1px solid var(--border-lt);padding:6px 13px;border-radius:9px;font-size:11.5px;max-width:85%;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.15);}
+.panel-human .speech{background:var(--panel);color:var(--text-on-human);}
+
+.hand-circle{width:190px;height:190px;border-radius:50%;background:rgba(143,165,46,.08);display:flex;align-items:center;justify-content:center;position:relative;}
+[data-theme="dark"] .hand-circle{background:rgba(199,224,74,.07);}
+.hand-icon{width:92px;height:92px;color:var(--accent);transition:all var(--med);}
+.hand-icon.filled{color:var(--text-on-human);}
+.hand-caption{position:absolute;bottom:-26px;left:0;right:0;text-align:center;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);}
+
+.panel-foot{display:flex;align-items:center;justify-content:space-between;margin-top:16px;font-size:11.5px;}
+.panel-foot .status-dot-text{display:flex;align-items:center;gap:6px;}
+.panel-foot .status-dot-text .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);}
+.panel-ai .panel-foot{color:var(--dim-on-ai);}
+.panel-human .panel-foot{color:var(--dim);}
+.panel-foot .big{font-weight:700;}
+.panel-ai .panel-foot .big{color:var(--text-on-ai);}
+.panel-human .panel-foot .big{color:var(--text-on-human);}
+.panel-corner-dots{display:flex;gap:4px;}
+.panel-corner-dots span{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.4;}
+
+/* ── Glass crack overlay (unchanged mechanic, themed colors) ───────── */
+.glass-crack{position:absolute;inset:0;z-index:6;opacity:0;pointer-events:none;transition:opacity .25s ease;}
+.glass-crack.active{opacity:1;animation:crackflash .5s ease;}
+.glass-crack svg{width:100%;height:100%;}
+@keyframes crackflash{0%{opacity:0;filter:brightness(3);}40%{opacity:1;filter:brightness(2);}100%{opacity:1;filter:brightness(1);}}
+.shard{fill:rgba(255,255,255,.05);stroke:rgba(255,255,255,.5);stroke-width:1;}
+.crackline{stroke:rgba(255,255,255,.75);stroke-width:1.4;fill:none;}
+
+/* ── Webcam panel elements (reused inside the human panel) ─────────── */
+.cam-feed-wrap{width:100%;height:100%;border-radius:12px;overflow:hidden;position:relative;background:var(--panel2);min-height:220px;}
+#camera-feed{width:100%;height:100%;object-fit:cover;display:block;}
+.cam-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--dim);font-size:12.5px;}
+.gesture-chip{position:absolute;bottom:10px;left:10px;background:rgba(0,0,0,.72);color:#fff;border-radius:8px;padding:4px 10px;font-size:11.5px;font-weight:600;z-index:2;}
+.gesture-chip.none{opacity:.7;}
+
+/* ── Status / stepper card ──────────────────────────────────────────── */
+.status-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;margin-bottom:18px;}
+.status-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+.status-label{font-size:10.5px;letter-spacing:.08em;color:var(--dim2);font-weight:700;text-transform:uppercase;}
+.status-headline{font-size:21px;font-weight:800;margin:4px 0 4px;}
+.status-headline.win{color:var(--win);} .status-headline.loss{color:var(--loss);} .status-headline.draw{color:var(--draw);}
+.status-desc{font-size:12.5px;color:var(--dim);}
+.status-controls{display:flex;align-items:center;gap:8px;}
+.mode-select{background:var(--panel2);border:1px solid var(--border);color:var(--text);font-size:12.5px;font-weight:600;padding:8px 10px;border-radius:9px;cursor:pointer;}
+.btn{border:none;border-radius:9px;font-size:13px;font-weight:700;padding:9px 18px;cursor:pointer;transition:all var(--fast);}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.btn-primary{background:var(--sidebar-active);color:var(--text-on-ai);}
+.btn-primary:hover:not(:disabled){background:var(--accent);color:#14160f;}
+.btn-ghost{background:var(--panel);color:var(--text);border:1px solid var(--border);}
+.btn-ghost:hover:not(:disabled){background:var(--panel2);}
+.btn-sm{padding:6px 12px;font-size:12px;}
+
+.stepper{display:flex;margin-top:18px;gap:4px;}
+.step{flex:1;text-align:center;}
+.step-bar{height:3px;border-radius:2px;background:var(--border);margin-bottom:6px;}
+.step.done .step-bar,.step.active .step-bar{background:var(--accent);}
+.step-label{font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.04em;}
+.step.active .step-label,.step.done .step-label{color:var(--accent);font-weight:700;}
+
+/* ── "Let's play" input card (Buttons / Webcam) ────────────────────── */
+.play-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:22px 24px;margin-bottom:18px;}
+.play-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:10px;}
+.eyebrow-label{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--dim2);text-transform:uppercase;}
+.eyebrow-label .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);}
+.input-toggle{display:flex;background:var(--panel2);border:1px solid var(--border);border-radius:9px;padding:3px;}
+.input-toggle button{border:none;background:transparent;padding:6px 14px;border-radius:7px;font-size:12.5px;font-weight:700;color:var(--dim);cursor:pointer;display:flex;align-items:center;gap:6px;}
+.input-toggle button.active{background:var(--panel);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08);}
+.play-card h2{font-size:22px;font-weight:800;margin:10px 0 4px;}
+.play-card .lede{font-size:12.5px;color:var(--dim);margin-bottom:18px;}
+
+.move-buttons{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px;}
+.move-btn{
+  display:flex;align-items:center;gap:12px;padding:16px 18px;border-radius:12px;border:1px solid var(--border);
+  background:var(--panel2);cursor:pointer;transition:all var(--fast);text-align:left;
+}
+.move-btn:hover:not(:disabled){border-color:var(--border-lt);transform:translateY(-1px);}
+.move-btn.selected{border-color:var(--accent);background:var(--accent-dim);}
+.move-btn:disabled{opacity:.5;cursor:not-allowed;}
+.move-btn svg{width:26px;height:26px;color:var(--text);flex-shrink:0;}
+.move-btn .label{font-size:14px;font-weight:700;flex:1;}
+.move-btn .key{font-size:10.5px;color:var(--dim2);border:1px solid var(--border);border-radius:5px;padding:1px 6px;}
+
+.kbd-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+.kbd-hints{font-size:11px;color:var(--dim2);display:flex;align-items:center;gap:6px;}
+.kbd-hints kbd{border:1px solid var(--border);border-radius:5px;padding:1px 6px;font-size:10px;}
+
+/* ── Stats + history ─────────────────────────────────────────────── */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;}
+.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.card-title{font-size:13px;font-weight:700;}
+.sync-chip{font-size:10.5px;color:var(--accent);}
+.empty-note{color:var(--dim2);font-size:12.5px;text-align:center;padding:24px 0;}
+
+.stat-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+.stat-box3 .stat-key{font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:5px;margin-bottom:6px;}
+.stat-box3 .stat-val{font-size:26px;font-weight:800;}
+.stat-box3 .stat-sub{font-size:11px;color:var(--dim2);margin-top:2px;}
+
+.hist-row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border);font-size:12.5px;}
+.hist-row:last-child{border-bottom:none;}
+.hist-left{display:flex;align-items:center;gap:8px;color:var(--dim);}
+.hist-num{color:var(--dim2);min-width:24px;}
+.hist-outcome{font-weight:700;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;padding:3px 9px;border-radius:5px;}
+.oc-win{color:var(--win);background:rgba(76,175,80,.12);}
+.oc-loss{color:var(--loss);background:rgba(217,83,79,.12);}
+.oc-draw{color:var(--draw);background:rgba(201,162,39,.12);}
+.oc-forfeit{color:var(--loss);background:rgba(217,83,79,.12);}
+
+.stat-hero{font-size:34px;font-weight:800;margin-bottom:2px;}
+.stat-hero-label{font-size:11px;color:var(--dim);display:flex;justify-content:space-between;margin-bottom:14px;}
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.stat-box{background:var(--panel2);border:1px solid var(--border);border-radius:9px;padding:9px 6px;text-align:center;}
+.stat-val{font-size:16px;font-weight:800;}
+.stat-val.blue{color:var(--accent);} .stat-val.green{color:var(--win);} .stat-val.red{color:var(--loss);}
+.stat-key{font-size:9.5px;color:var(--dim2);text-transform:uppercase;letter-spacing:.03em;margin-top:2px;}
+
+/* ── Username modal ──────────────────────────────────────────────── */
+.modal-backdrop{position:fixed;inset:0;background:rgba(10,10,6,.6);backdrop-filter:blur(3px);z-index:200;display:flex;align-items:center;justify-content:center;}
+.modal-card{width:340px;background:var(--panel);border:1px solid var(--border-lt);border-radius:var(--radius);padding:28px 26px;text-align:center;}
+.modal-card .robot-avatar{margin-bottom:14px;}
+.modal-card h2{font-size:18px;margin-bottom:6px;}
+.modal-sub{font-size:12.5px;color:var(--dim);margin-bottom:18px;line-height:1.5;}
+.field-label{display:block;text-align:left;font-size:12px;color:var(--dim);margin-bottom:6px;}
+.text-input{width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:9px;padding:10px 12px;font-size:14px;outline:none;transition:border-color var(--fast);}
+.text-input:focus{border-color:var(--accent);}
+.field-hint{font-size:11px;color:var(--dim2);text-align:left;margin-top:6px;}
+.field-error{font-size:11.5px;color:var(--loss);text-align:left;margin-top:6px;min-height:14px;}
+.modal-card .btn-primary{width:100%;margin-top:16px;padding:10px;}
+
+/* ── Achievement toast ───────────────────────────────────────────── */
+.achievement-toast{position:fixed;top:14px;left:50%;transform:translateX(-50%) translateY(-120%);background:var(--panel);border:1px solid var(--amber);border-radius:12px;padding:12px 24px;text-align:center;z-index:300;transition:transform .4s cubic-bezier(.34,1.56,.64,1);box-shadow:0 8px 30px rgba(201,162,39,.2);}
+.achievement-toast.show{transform:translateX(-50%) translateY(0);}
+.ach-label{font-size:10px;letter-spacing:.1em;color:var(--amber);font-weight:700;}
+.ach-title{font-size:16px;font-weight:800;margin:3px 0;}
+.ach-sub{font-size:11.5px;color:var(--dim);}
+
+/* ── Leaderboard view ────────────────────────────────────────────── */
+.lb-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;gap:12px;flex-wrap:wrap;}
+.lb-source{font-size:11px;color:var(--dim2);}
+.lb-search{display:flex;gap:8px;align-items:center;}
+.tabs{display:flex;gap:4px;background:var(--panel2);border:1px solid var(--border);border-radius:9px;padding:3px;}
+.tab-btn{border:none;background:transparent;color:var(--dim);padding:6px 14px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;transition:all var(--fast);}
+.tab-btn.active{background:var(--sidebar-active);color:var(--text-on-ai);}
+.lb-note{font-size:11.5px;color:var(--accent);margin-bottom:10px;}
+.lb-table-row{display:grid;grid-template-columns:40px 1fr 90px 90px;align-items:center;padding:11px 10px;border-radius:9px;font-size:13px;}
+.lb-table-row.head{color:var(--dim2);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;}
+.lb-table-row.you{background:var(--accent-dim);border:1px solid var(--accent);}
+.lb-table-row.top1{background:rgba(201,162,39,.08);} .lb-table-row.top2{background:rgba(154,156,134,.08);} .lb-table-row.top3{background:rgba(184,115,51,.08);}
+.lb-rank{font-weight:800;color:var(--dim);} .lb-rank.medal{font-size:16px;color:var(--amber);}
+.lb-name{font-weight:600;} .lb-you-badge{font-size:9.5px;color:var(--accent);margin-left:6px;}
+.lb-streak{color:var(--accent);font-weight:700;text-align:right;} .lb-wins{color:var(--dim);text-align:right;}
+.lb-state{text-align:center;padding:36px 0;color:var(--dim);font-size:13px;}
+.spinner{width:22px;height:22px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 10px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+@media (max-width:860px){
+  .arena-grid{grid-template-columns:1fr;}
+  .two-col{grid-template-columns:1fr;}
+  .move-buttons{grid-template-columns:1fr;}
+  .stat-grid3{grid-template-columns:repeat(3,1fr);}
+}
+/* ════════════════════════════════════════════════════════════════
+   ROBOT
+   ════════════════════════════════════════════════════════════════ */
+.robot-avatar{position:relative;width:140px;height:150px;margin:0 auto;}
+.robot-avatar.mini{transform:scale(.52);}
+.antenna{position:absolute;top:-20px;left:50%;transform:translateX(-50%);width:2px;height:16px;background:#3a3c48;}
+.antenna-dot{position:absolute;top:-6px;left:-3px;width:8px;height:8px;border-radius:50%;background:var(--accent-lt);box-shadow:0 0 8px var(--accent-lt);}
+.robot-head{width:118px;height:88px;background:#191a22;border:2px solid #2b2d39;border-radius:26px;position:relative;margin:0 auto;animation:breathe 3.4s ease-in-out infinite;transition:border-color var(--med),box-shadow var(--med);}
+@keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.eye{position:absolute;top:28px;width:20px;height:20px;border-radius:50%;background:var(--accent-lt);box-shadow:0 0 12px var(--accent-lt);transition:all .25s;animation:blink 5.4s infinite;}
+.eye-l{left:24px;} .eye-r{right:24px;}
+@keyframes blink{0%,91%,100%{transform:scaleY(1)}95%{transform:scaleY(.1)}}
+.brow{position:absolute;top:18px;width:20px;height:3px;border-radius:2px;background:transparent;transition:all var(--med);}
+.brow-l{left:22px;} .brow-r{right:22px;}
+.mouth{position:absolute;bottom:15px;left:50%;transform:translateX(-50%);width:32px;height:9px;border-bottom:3px solid var(--dim2);border-radius:0 0 16px 16px;transition:all var(--med);}
+.tear{position:absolute;top:46px;width:6px;height:10px;border-radius:50% 50% 50% 0;background:#7dd3fc;opacity:0;}
+.tear-l{left:32px;} .tear-r{right:32px;}
+.robot-body{width:84px;height:44px;background:#15161c;border:2px solid #2b2d39;border-radius:16px;margin:6px auto 0;position:relative;transition:all var(--med);}
+.chest-screen{position:absolute;inset:7px 22px;background:#0a0a0d;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--dim2);}
+.arm{position:absolute;top:4px;width:13px;height:20px;border-radius:7px;background:#191a22;border:2px solid #2b2d39;}
+.arm-l{left:-17px;} .arm-r{right:-17px;}
+
+/* THINKING */
+.state-thinking .robot-head{animation:tilt 1.5s ease-in-out infinite;}
+@keyframes tilt{0%,100%{transform:rotate(0)}50%{transform:rotate(3deg)}}
+.state-thinking .eye{animation:lookaround 1.7s ease-in-out infinite;}
+@keyframes lookaround{0%,100%{transform:translateX(0)}50%{transform:translateX(3px)}}
+.state-thinking .mouth{width:14px;height:4px;border-radius:2px;border-bottom:none;background:var(--dim);}
+
+/* REVEAL */
+.state-reveal .eye{width:24px;height:24px;animation:pop .35s ease;}
+@keyframes pop{0%{transform:scale(.55)}60%{transform:scale(1.25)}100%{transform:scale(1)}}
+.state-reveal .mouth{width:15px;height:15px;border-radius:50%;border:3px solid var(--dim);border-bottom:3px solid var(--dim);background:transparent;}
+
+/* LAUGH */
+.state-laugh1 .eye,.state-laugh2 .eye,.state-laugh3 .eye{height:6px;border-radius:0 0 10px 10px;top:32px;}
+.state-laugh1 .mouth{width:40px;height:16px;border:2px solid var(--accent-lt);border-top:none;border-radius:0 0 20px 20px;background:rgba(123,130,245,.18);}
+.state-laugh2 .mouth{width:48px;height:20px;border:2px solid var(--accent-lt);border-top:none;border-radius:0 0 24px 24px;background:rgba(123,130,245,.25);}
+.state-laugh3 .eye{height:4px;top:34px;}
+.state-laugh3 .mouth{width:54px;height:26px;border:2px solid var(--accent-lt);border-top:none;border-radius:0 0 27px 27px;background:rgba(123,130,245,.32);}
+.state-laugh1 .robot-head,.state-laugh1 .robot-body{animation:shake-sm 1.2s ease-in-out infinite;}
+.state-laugh2 .robot-head,.state-laugh2 .robot-body{animation:shake-md .7s ease-in-out infinite;}
+.state-laugh3 .robot-head,.state-laugh3 .robot-body{animation:shake-lg .45s ease-in-out infinite;}
+@keyframes shake-sm{0%,100%{transform:translateX(0)}50%{transform:translateX(2px)}}
+@keyframes shake-md{0%,100%{transform:translateX(0) rotate(0)}50%{transform:translateX(-3px) rotate(-1.5deg)}}
+@keyframes shake-lg{0%,100%{transform:translateX(0) rotate(0)}50%{transform:translateX(5px) rotate(2.5deg)}}
+
+/* CRYING */
+.state-crying .eye{opacity:.85;border-radius:50% 50% 40% 40%;}
+.state-crying .mouth{border-bottom:none;border-top:3px solid var(--dim2);border-radius:16px 16px 0 0;}
+.state-crying .tear{opacity:1;animation:dripfall 1.5s ease-in infinite;}
+.state-crying .tear-r{animation-delay:.5s;}
+@keyframes dripfall{0%{transform:translateY(0);opacity:0}25%{opacity:1}100%{transform:translateY(24px);opacity:0}}
+.state-crying .robot-head,.state-crying .robot-body{transform:translateY(4px) rotate(-2deg);}
+
+/* SMUG / DRAW */
+.state-smug .eye-r{height:5px;top:33px;border-radius:3px;}
+.state-smug .mouth{width:18px;height:8px;left:60%;border-radius:0 0 10px 3px;border-bottom:3px solid var(--accent-lt);transform:translateX(-50%) rotate(-8deg);}
+
+/* ANGER PROGRESSION */
+.state-anger2 .eye{background:#fbbf24;box-shadow:0 0 12px #fbbf24;}
+.state-anger2 .brow{background:#fbbf24;transform:rotate(12deg);}
+.state-anger2 .brow-r{transform:rotate(-12deg);}
+.state-anger2 .mouth{border-radius:0;border-bottom:3px solid var(--dim);width:26px;}
+.state-anger2 .robot-head{animation:shake-sm 1.4s ease-in-out infinite;}
+
+.state-anger3 .eye{background:#f59e0b;box-shadow:0 0 14px #f59e0b;}
+.state-anger3 .brow{background:#f59e0b;transform:rotate(18deg);top:16px;}
+.state-anger3 .brow-r{transform:rotate(-18deg);}
+.state-anger3 .mouth{border-radius:0;border-top:3px solid var(--dim);border-bottom:none;width:28px;}
+.state-anger3 .robot-head,.state-anger3 .robot-body{animation:shake-sm 1s ease-in-out infinite;}
+
+.state-anger5 .eye{background:#f97316;box-shadow:0 0 18px #f97316;animation:pulse-glow 1s ease-in-out infinite;}
+.state-anger5 .brow{background:#f97316;transform:rotate(24deg);top:15px;}
+.state-anger5 .brow-r{transform:rotate(-24deg);}
+.state-anger5 .mouth{border-radius:0;border-top:3px solid var(--dim);border-bottom:none;width:30px;}
+.state-anger5 .robot-head,.state-anger5 .robot-body{animation:shake-md .6s ease-in-out infinite;}
+@keyframes pulse-glow{0%,100%{box-shadow:0 0 10px currentColor}50%{box-shadow:0 0 22px currentColor}}
+
+.state-anger7 .eye{background:#ef4444;box-shadow:0 0 20px #ef4444;animation:pulse-glow .8s ease-in-out infinite;}
+.state-anger7 .brow{background:#ef4444;transform:rotate(30deg);top:14px;}
+.state-anger7 .brow-r{transform:rotate(-30deg);}
+.state-anger7 .mouth{clip-path:polygon(0 0,15% 60%,30% 10%,45% 60%,60% 10%,75% 60%,100% 0,100% 100%,0 100%);width:32px;height:12px;background:var(--dim2);border:none;}
+.state-anger7 .robot-head,.state-anger7 .robot-body{animation:shake-lg .4s ease-in-out infinite;}
+
+.state-anger9 .eye{background:#dc2626;box-shadow:0 0 26px #dc2626;animation:pulse-glow .5s ease-in-out infinite;}
+.state-anger9 .brow{background:#dc2626;transform:rotate(36deg);top:13px;}
+.state-anger9 .brow-r{transform:rotate(-36deg);}
+.state-anger9 .mouth{clip-path:polygon(0 0,15% 60%,30% 10%,45% 60%,60% 10%,75% 60%,100% 0,100% 100%,0 100%);width:36px;height:14px;background:#7a1f1f;border:none;}
+.state-anger9 .robot-head{animation:shake-lg .3s ease-in-out infinite;box-shadow:0 0 30px rgba(220,38,38,.35);}
+.state-anger9 .robot-body{animation:shake-lg .3s ease-in-out infinite;}
+
+/* SMASH (10-win achievement) */
+.state-smash .eye{width:28px;height:28px;background:#dc2626;box-shadow:0 0 34px #dc2626;animation:pulse-glow .3s ease-in-out infinite;}
+.state-smash .brow{background:#dc2626;transform:rotate(40deg);top:10px;height:4px;}
+.state-smash .brow-r{transform:rotate(-40deg);}
+.state-smash .mouth{clip-path:polygon(0 0,15% 70%,30% 5%,45% 70%,60% 5%,75% 70%,100% 0,100% 100%,0 100%);width:42px;height:18px;background:#5c1414;border:none;}
+.state-smash .robot-head{animation:violent-shake .4s ease-in-out 5;box-shadow:0 0 40px rgba(220,38,38,.5);}
+.state-smash .robot-body{animation:violent-shake .4s ease-in-out 5;}
+@keyframes violent-shake{0%,100%{transform:translateX(0) rotate(0)}25%{transform:translateX(-6px) rotate(-5deg)}75%{transform:translateX(6px) rotate(5deg)}}
+
+</style>
+</head>
+<body>
+
+<!-- ════════ USERNAME MODAL ════════ -->
+<div class="modal-backdrop" id="username-modal">
+  <div class="modal-card">
+    <div class="robot-avatar state-idle" id="modal-robot">
+      <span class="antenna"><span class="antenna-dot"></span></span>
+      <div class="robot-head"><div class="eye eye-l"></div><div class="eye eye-r"></div><div class="brow brow-l"></div><div class="brow brow-r"></div><div class="mouth"></div><div class="tear tear-l"></div><div class="tear tear-r"></div></div>
+      <div class="robot-body"><span class="arm arm-l"></span><span class="arm arm-r"></span><div class="chest-screen">?</div></div>
+    </div>
+    <h2>Choose your username</h2>
+    <div class="modal-sub">It appears on the global leaderboard. No password or email needed.</div>
+    <label class="field-label">Username</label>
+    <input class="text-input" id="username-input" placeholder="e.g. PaperTiger" maxlength="16" autocomplete="off">
+    <div class="field-hint">3 to 16 characters. Letters, numbers, underscores.</div>
+    <div class="field-error" id="username-error"></div>
+    <button class="btn btn-primary" id="btn-start-playing">Start playing</button>
+  </div>
+</div>
+
+<!-- ════════ ACHIEVEMENT TOAST ════════ -->
+<div class="achievement-toast" id="achievement-toast">
+  <div class="ach-label">ACHIEVEMENT UNLOCKED</div>
+  <div class="ach-title">You broke the robot!</div>
+  <div class="ach-sub">10 wins in a row. It will not forget this.</div>
+</div>
+
+<div class="app-shell">
+
+  <!-- ════════ SIDEBAR ════════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-brand">
+      <span class="sb-mark" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m23 35-7-22a4.5 4.5 0 0 1 8-3l9 22 6-24a4.5 4.5 0 0 1 9 2l-6 25c8-2 13 1 13 7 0 7-7 13-10 17H26c-3-6-12-10-14-16-2-5 2-9 6-6l10 7"/><path d="m35 38 10 3m-12 6 11 1M26 59h19"/></svg></span>
+      <span class="sb-brand-text">
+        <span class="sb-brand-title">rps<span class="dot">.</span>club</span>
+        <span class="sb-brand-kicker">Humans welcome.</span>
+      </span>
+    </div>
+
+    <div class="sb-section-label">The playground</div>
+    <nav class="sb-nav">
+      <button class="nav-item active" data-tab="play"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="4"/><path d="M7 12h4m-2-2v4m6-2h.01m3 3h.01M8 6l1-3m7 3-1-3"/></svg>&nbsp; The Arena <span class="live-dot"></span></button>
+      <button class="nav-item" data-tab="leaderboard"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8v7a4 4 0 0 1-8 0V3Zm0 2H4v3a4 4 0 0 0 4 4m8-7h4v3a4 4 0 0 1-4 4m-4 2v6m-4 1h8"/></svg>&nbsp; Leaderboard</button>
+      <a class="nav-item" href="/robot-lab"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="4"/><path d="M12 3v4M1 11v4m22-4v4M8 12h.01M16 12h.01M9 16h6"/></svg>&nbsp; Robot Lab <span class="pill">LAB</span></a>
+    </nav>
+
+    <div class="sb-spacer"></div>
+
+    <div class="challenge-card">
+      <h4>Built different? Prove it.</h4>
+      <p>Win 10 rounds in a row. Break the robot.</p>
+      <div class="challenge-bar"><div class="challenge-bar-fill" id="challenge-bar-fill" style="width:0%"></div></div>
+      <div class="challenge-foot"><span>The 10-win challenge</span><span id="challenge-count">0/10</span></div>
+    </div>
+    <a class="howto-link" href="#" id="btn-how-to-play"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 .5c0 2-2.5 2-2.5 4m0 3h.01"/></svg>&nbsp; How to play</a>
+
+    <div class="sb-user hidden" id="user-chip">
+      <div class="sb-user-avatar" id="user-avatar">?</div>
+      <div class="sb-user-text">
+        <span class="sb-user-name" id="user-name-label">—</span>
+        <span class="sb-user-sub" id="user-streak-label">Streak 0</span>
+      </div>
+      <span class="sb-user-dot"></span>
+    </div>
+  </aside>
+
+  <!-- ════════ MAIN AREA ════════ -->
+  <div class="main-area">
+
+    <header class="topbar">
+      <div class="breadcrumb">
+        <button class="icon-btn hidden" id="btn-sidebar-toggle" style="margin-right:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+        Playground / <span class="current" id="breadcrumb-current">The Arena</span>
+      </div>
+      <div class="topbar-right">
+        <span class="status-pill"><span class="dot"></span> ALL SYSTEMS PLAY</span>
+        <select id="camera-select" class="mode-select hidden" style="padding:5px 7px;">
+          {% if cameras %}{% for c in cameras %}<option value="{{ c }}">Camera {{ c }}</option>{% endfor %}
+          {% else %}<option value="0">Camera 0</option>{% endif %}
+        </select>
+        <button class="icon-btn" id="btn-theme-toggle" title="Toggle theme"></button>
+        <button class="icon-btn" id="btn-sound-toggle" title="Mute/unmute"></button>
+        <button class="icon-btn" id="btn-help" title="How to play">?</button>
+      </div>
+    </header>
+
+    <!-- ════════ HERO ════════ -->
+    <div class="hero">
+      <div>
+        <div class="hero-eyebrow">■ Human instinct. Artificial confidence.</div>
+        <h1>Outsmart the <span class="muted">machine.</span></h1>
+        <div class="hero-sub">Three moves. One rival. Think you've got the upper hand?</div>
+      </div>
+      <div class="hero-badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="m13 2-9 12h7l-1 8 10-12h-8l1-8Z"/></svg> Human vs. AI</div>
+    </div>
+
+    <!-- ════════ PLAY VIEW ════════ -->
+    <div id="view-play">
+
+      <div class="arena-card">
+        <div class="arena-card-head">
+          <span>● THE ARENA &nbsp;|&nbsp; ROUND <b id="round-tag-inline">1</b></span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="cam-chip hidden" id="cam-status-wrap" style="font-size:11px;color:var(--dim);"><span id="cam-dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--dim2);margin-right:4px;"></span><span id="cam-text">Camera off</span></span>
+            <button class="btn btn-ghost btn-sm hidden" id="btn-cam-toggle">Start camera</button>
+          </div>
+        </div>
+
+        <div class="arena-grid">
+          <div class="vs-badge" id="vs-badge">VS</div>
+
+          <!-- AI PANEL (always dark) -->
+          <div class="panel panel-ai">
+            <div class="panel-head">
+              <span class="panel-who"><span class="avatar-chip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="12" rx="4"/><path d="M12 3v4M1 11v4m22-4v4M8 12h.01M16 12h.01M9 16h6"/></svg></span> Rookie <span class="tag" id="robot-chip">AI opponent</span></span>
+              <span class="panel-score"><span id="score-robot">0</span><span class="of">/<span id="target-robot">2</span></span></span>
+            </div>
+            <div class="panel-stage">
+              <div class="speech" id="robot-speech">Your move, human.</div>
+              <div class="robot-avatar state-idle" id="robot-avatar">
+                <span class="antenna"><span class="antenna-dot"></span></span>
+                <div class="robot-head"><div class="eye eye-l"></div><div class="eye eye-r"></div><div class="brow brow-l"></div><div class="brow brow-r"></div><div class="mouth"></div><div class="tear tear-l"></div><div class="tear tear-r"></div></div>
+                <div class="robot-body"><span class="arm arm-l"></span><span class="arm arm-r"></span><div class="chest-screen" id="robot-chest">?</div></div>
+              </div>
+              <div class="glass-crack" id="robot-crack"></div>
+            </div>
+            <div class="panel-foot">
+              <span class="status-dot-text"><span class="dot"></span><span id="robot-move-label">Hidden</span></span>
+              <span class="panel-corner-dots"><span></span><span></span></span>
+            </div>
+          </div>
+
+          <!-- HUMAN PANEL (flips light/dark with theme) -->
+          <div class="panel panel-human">
+            <div class="panel-head">
+              <span class="panel-who"><span class="avatar-chip" id="user-avatar-2">Y</span> <span id="player-panel-name">You</span> <span class="tag">The human</span></span>
+              <span class="panel-score"><span id="score-you">0</span><span class="of">/<span id="target-you">2</span></span></span>
+            </div>
+            <div class="panel-stage">
+              <!-- Webcam mode -->
+              <div class="cam-feed-wrap hidden" id="webcam-input-area" style="width:100%;height:100%;">
+                <div class="cam-placeholder" id="cam-placeholder">
+                  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.361a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
+                  <span>Camera preview</span>
+                  <button class="btn btn-ghost btn-sm" id="btn-enable-cam">Enable camera</button>
+                </div>
+                <img id="camera-feed" src="" alt="" style="display:none">
+                <div class="gesture-chip none" id="gesture-chip">No gesture</div>
+              </div>
+              <!-- Buttons mode -->
+              <div id="buttons-stage-area">
+                <div class="hand-circle">
+                  <svg id="human-hand-icon" class="hand-icon" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 30V16a4 4 0 118 0v10M30 28V12a4 4 0 118 0v16M38 28V16a4 4 0 118 0v14M22 30v10c0 8 6 16 16 16s14-8 14-16v-6a4 4 0 00-8 0"/>
+                  </svg>
+                  <div class="hand-caption" id="human-hand-caption">100% human. Probably.</div>
+                </div>
+              </div>
+              <div class="glass-crack" id="cam-crack"></div>
+            </div>
+            <div class="panel-foot">
+              <span class="status-dot-text"><span class="dot"></span><span class="big" id="gesture-label">Make your move</span></span>
+              <span class="panel-corner-dots"><span></span><span></span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════ READY / STEPPER CARD ════════ -->
+      <div class="status-card" id="status-card">
+        <div class="status-top">
+          <div>
+            <div class="status-label" id="status-label">READY</div>
+            <div class="status-headline" id="status-headline">Ready to play?</div>
+            <div class="status-desc" id="status-desc">First to 3 wins the match. Your win streak carries across matches.</div>
+          </div>
+          <div class="status-controls">
+            <select id="mode-select" class="mode-select">
+              <option value="">Single Round</option>
+              <option value="best3">Best of 3</option>
+              <option value="best5" selected>Best of 5</option>
+              <option value="best10">Best of 10</option>
+            </select>
+            <button class="btn btn-primary" id="btn-start" disabled>Start match</button>
+          </div>
+        </div>
+        <div class="stepper" id="stepper">
+          <div class="step active" data-step="ready"><div class="step-bar"></div><div class="step-label">Ready</div></div>
+          <div class="step" data-step="countdown"><div class="step-bar"></div><div class="step-label">Countdown</div></div>
+          <div class="step" data-step="detecting"><div class="step-bar"></div><div class="step-label">Detecting</div></div>
+          <div class="step" data-step="locked"><div class="step-bar"></div><div class="step-label">Locked</div></div>
+          <div class="step" data-step="revealing"><div class="step-bar"></div><div class="step-label">Revealing</div></div>
+          <div class="step" data-step="result"><div class="step-bar"></div><div class="step-label">Result</div></div>
+        </div>
+      </div>
+
+      <!-- ════════ LET'S PLAY (Buttons / Webcam) ════════ -->
+      <div class="play-card">
+        <div class="play-card-head">
+          <span class="eyebrow-label"><span class="dot"></span> Let's play</span>
+          <div class="input-toggle" id="input-toggle">
+            <button data-mode="buttons" class="active"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V5a2 2 0 1 1 4 0v6m0-3a2 2 0 1 1 4 0v4m0-2a2 2 0 1 1 4 0v4c0 4-2 7-6 7h-2c-3 0-4-1-6-4l-2-3c-1-1.5 1-3 2.5-1.5L8 15"/></svg> Buttons</button>
+            <button data-mode="webcam"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="3"/><path d="m16 10 5-3v10l-5-3"/></svg> Webcam</button>
+          </div>
+        </div>
+        <h2>Your move, human.</h2>
+        <div class="lede">Pick your move below. A little instinct goes a long way.</div>
+
+        <div class="move-buttons" id="move-buttons">
+          <button class="move-btn" data-move="rock">
+            <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 30v16c0 8 6 14 14 14s14-6 14-14V26a4 4 0 00-8 0v-2a4 4 0 00-8 0v-2a4 4 0 00-8 0v-4a4 4 0 00-8 0v14z"/></svg>
+            <span class="label">Rock</span><span class="key">1</span>
+          </button>
+          <button class="move-btn" data-move="paper">
+            <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 30V16a4 4 0 118 0v10M30 28V12a4 4 0 118 0v16M38 28V16a4 4 0 118 0v14M22 30v10c0 8 6 16 16 16s14-8 14-16v-6a4 4 0 00-8 0"/></svg>
+            <span class="label">Paper</span><span class="key">2</span>
+          </button>
+          <button class="move-btn" data-move="scissors">
+            <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M26 38a6 6 0 11-6 6M38 38a6 6 0 106-6M24 20l20 20M44 20L28 36M32 32l14 14"/></svg>
+            <span class="label">Scissors</span><span class="key">3</span>
+          </button>
+        </div>
+
+        <div class="kbd-row">
+          <span class="kbd-hints"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> to choose &nbsp;·&nbsp; <kbd>space</kbd> to play</span>
+        </div>
+      </div>
+
+      <!-- ════════ STATS + HISTORY ════════ -->
+      <div class="two-col">
+        <div class="card">
+          <div class="card-head"><span class="card-title">Your track record</span><span class="sync-chip" id="sync-chip"></span></div>
+          <div class="stat-grid3">
+            <div class="stat-box3"><div class="stat-key">Current streak</div><div class="stat-val" id="stat-current-streak">0</div><div class="stat-sub">Keep the momentum.</div></div>
+            <div class="stat-box3"><div class="stat-key">Personal best</div><div class="stat-val" id="stat-best">0</div><div class="stat-sub">Your streak to beat.</div></div>
+            <div class="stat-box3"><div class="stat-key">Win rate</div><div class="stat-val" id="stat-winrate">0%</div><div class="stat-sub" id="stat-wl-sub">0 wins · 0 losses</div></div>
+          </div>
+          <div class="stat-grid" style="margin-top:14px;">
+            <div class="stat-box"><div class="stat-val blue" id="stat-rank">Unranked</div><div class="stat-key">Global rank</div></div>
+            <div class="stat-box"><div class="stat-val green" id="stat-wins">0</div><div class="stat-key">Total wins</div></div>
+            <div class="stat-box"><div class="stat-val red" id="stat-losses">0</div><div class="stat-key">Total losses</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="card-title">Round history</span></div>
+          <div id="history-list"><div class="empty-note">A clean slate. Your story starts with the first round.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ LEADERBOARD VIEW ════════ -->
+    <div class="hidden" id="view-leaderboard">
+      <div class="card">
+        <div class="lb-toolbar">
+          <div><div class="card-title">Global leaderboard</div><div class="lb-source" id="lb-source-note"></div></div>
+          <div class="lb-search">
+            <input class="text-input" id="lb-search-input" placeholder="Search username…" style="width:180px;">
+            <button class="btn btn-ghost btn-sm" id="btn-lb-refresh">Refresh</button>
+          </div>
+        </div>
+        <div class="tabs" id="lb-sort-tabs" style="display:inline-flex;margin-bottom:14px;">
+          <button class="tab-btn active" data-sort="streak">Win Streak</button>
+          <button class="tab-btn" data-sort="wins">Total Wins</button>
+          <button class="tab-btn" data-sort="winrate">Win Rate</button>
+        </div>
+        <div class="lb-note hidden" id="lb-winrate-note"></div>
+        <div class="lb-table-row head" id="lb-head-row"><span>#</span><span>Player</span><span style="text-align:right">Streak</span><span style="text-align:right">Wins</span></div>
+        <div id="lb-body"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+<script>
+// ════════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+
+// ════════════════════════════════════════════════════════════════
+// ICONS -- one consistent stroke-SVG set used everywhere in the UI
+// instead of emoji (nav, panels, chips, history, leaderboard, toasts).
+// ════════════════════════════════════════════════════════════════
+const ICON_PATHS = {
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2m0 14v2M4.2 4.2l1.4 1.4m12.8 12.8 1.4 1.4M3 12h2m14 0h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"/>',
+  sound: '<path d="m11 4-6 5H2v6h3l6 5V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
+  mute: '<path d="m11 4-6 5H2v6h3l6 5V4Zm5 5 6 6m0-6-6 6"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="3"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  close: '<path d="m6 6 12 12M6 18 18 6"/>',
+  trophy: '<path d="M8 3h8v7a4 4 0 0 1-8 0V3Zm0 2H4v3a4 4 0 0 0 4 4m8-7h4v3a4 4 0 0 1-4 4m-4 2v6m-4 1h8"/>',
+  robot: '<rect x="4" y="7" width="16" height="12" rx="4"/><path d="M12 3v4M1 11v4m22-4v4M8 12h.01M16 12h.01M9 16h6"/>',
+  camera: '<rect x="3" y="6" width="13" height="12" rx="3"/><path d="m16 10 5-3v10l-5-3"/>',
+  bolt: '<path d="m13 2-9 12h7l-1 8 10-12h-8l1-8Z"/>',
+  hand: '<path d="M9 11V5a2 2 0 1 1 4 0v6m0-3a2 2 0 1 1 4 0v4m0-2a2 2 0 1 1 4 0v4c0 4-2 7-6 7h-2c-3 0-4-1-6-4l-2-3c-1-1.5 1-3 2.5-1.5L8 15"/>',
+};
+function icon(name, size) {
+  size = size || 15;
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">' + (ICON_PATHS[name] || '') + '</svg>';
+}
+function handIcon(move, size) {
+  size = size || 15;
+  if (!HAND_PATHS[move]) return '';
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="' + HAND_PATHS[move] + '"/></svg>';
+}
+
+const GESTURES = {
+  rock:     { icon:'rock',     label:'Rock',     hint:'Closed fist' },
+  paper:    { icon:'paper',    label:'Paper',    hint:'Open palm' },
+  scissors: { icon:'scissors', label:'Scissors', hint:'Victory sign' },
+  forfeit:  { icon:null,       label:'Forfeit',  hint:'' },
+};
+const MEDIAPIPE_TO_GESTURE = { Closed_Fist:'rock', Open_Palm:'paper', Victory:'scissors' };
+const MODE_LABEL = { '':'Single Round', best3:'Best of 3', best5:'Best of 5', best10:'Best of 10' };
+const MODE_TARGET = { '':1, best3:2, best5:3, best10:6 };
+const STEP_ORDER = ['ready','countdown','detecting','locked','revealing','result'];
+const HAND_PATHS = {
+  rock: 'M20 30v16c0 8 6 14 14 14s14-6 14-14V26a4 4 0 00-8 0v-2a4 4 0 00-8 0v-2a4 4 0 00-8 0v-4a4 4 0 00-8 0v14z',
+  paper: 'M22 30V16a4 4 0 118 0v10M30 28V12a4 4 0 118 0v16M38 28V16a4 4 0 118 0v14M22 30v10c0 8 6 16 16 16s14-8 14-16v-6a4 4 0 00-8 0',
+  scissors: 'M26 38a6 6 0 11-6 6M38 38a6 6 0 106-6M24 20l20 20M44 20L28 36M32 32l14 14',
+};
+
+let cameraRunning = false;
+let currentUser = null;
+let lastSeenRoundId = 0;
+let aiStreak = 0;
+let previewMode = false;
+let frameTimer = null, statusTimer = null;
+let lastCountdownShown = null;
+let btnStartIsNewSession = true;
+let gestureLockedDisplay = false;
+let inputMode = 'buttons';         // 'buttons' | 'webcam' -- which input drives the next round
+let selectedButtonMove = null;     // 'rock' | 'paper' | 'scissors' | null
+
+const ROBOT_CAPTIONS = {
+  idle: "Your move, human.", thinking: "Calculating optimal chaos…", reveal: "Here it comes…",
+  laugh1: "Ha! Rookie move.", laugh2: "Too easy, human!", laugh3: "I could do this all day!",
+  crying: "My circuits… why did I pick that?", smug: "Hah. We think alike.",
+  anger2: "Lucky streak. Won't last.", anger3: "This is getting annoying.", anger5: "I am NOT amused.",
+  anger7: "You will regret this.", anger9: "ENOUGH. HUMAN.", smash: "NOOOOOO!!"
+};
+
+// ════════════════════════════════════════════════════════════════
+// THEME (persisted; applied pre-paint by the inline <script> in <head>)
+// ════════════════════════════════════════════════════════════════
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('rps_theme', theme);
+  $('btn-theme-toggle').innerHTML = icon(theme === 'dark' ? 'moon' : 'sun', 15);
+}
+$('btn-theme-toggle').addEventListener('click', () => {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+});
+applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+
+let soundOn = localStorage.getItem('rps_sound') !== 'off';
+function applySound() { $('btn-sound-toggle').innerHTML = icon(soundOn ? 'sound' : 'mute', 15); }
+$('btn-sound-toggle').addEventListener('click', () => {
+  soundOn = !soundOn;
+  localStorage.setItem('rps_sound', soundOn ? 'on' : 'off');
+  applySound();
+});
+applySound();
+$('btn-help').addEventListener('click', () => $('btn-how-to-play').click());
+$('btn-how-to-play').addEventListener('click', (e) => {
+  e.preventDefault();
+  alert('Pick Rock, Paper, or Scissors (via buttons or your webcam), then start a match. '
+    + 'Rock beats Scissors, Scissors beats Paper, Paper beats Rock. Win 10 rounds in a row to break the robot!');
+});
+$('btn-sidebar-toggle').addEventListener('click', () => $('sidebar').classList.toggle('open'));
+
+function robotInnerHTML(chest) {
+  return `<span class="antenna"><span class="antenna-dot"></span></span>
+    <div class="robot-head"><div class="eye eye-l"></div><div class="eye eye-r"></div>
+      <div class="brow brow-l"></div><div class="brow brow-r"></div><div class="mouth"></div>
+      <div class="tear tear-l"></div><div class="tear tear-r"></div></div>
+    <div class="robot-body"><span class="arm arm-l"></span><span class="arm arm-r"></span>
+      <div class="chest-screen">${chest || ''}</div></div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// ROBOT STATE ENGINE (unchanged from the previous build)
+// ════════════════════════════════════════════════════════════════
+function setRobotState(state, opts) {
+  opts = opts || {};
+  const el = $('robot-avatar');
+  el.className = 'robot-avatar state-' + state;
+  $('robot-speech').textContent = opts.caption || ROBOT_CAPTIONS[state] || '';
+  if (!previewMode) {
+    $('robot-chest').innerHTML = opts.chest ? handIcon(opts.chest, 16) : '?';
+  }
+}
+function angerStateForStreak(streak) {
+  if (streak >= 10) return 'smash';
+  if (streak >= 9) return 'anger9';
+  if (streak >= 7) return 'anger7';
+  if (streak >= 5) return 'anger5';
+  if (streak >= 3) return 'anger3';
+  if (streak >= 2) return 'anger2';
+  return null;
+}
+function reactToOutcome(outcome, currentStreak, achievement, chestEmoji) {
+  if (outcome === 'win') {
+    if (achievement === 'robot_break') { triggerSmash(chestEmoji); return; }
+    const anger = angerStateForStreak(currentStreak);
+    aiStreak = 0;
+    setRobotState(anger || 'crying', {chest: chestEmoji});
+  } else if (outcome === 'draw') {
+    aiStreak = 0;
+    setRobotState('smug', {chest: chestEmoji});
+  } else {
+    aiStreak += 1;
+    const level = aiStreak >= 3 ? 'laugh3' : (aiStreak >= 2 ? 'laugh2' : 'laugh1');
+    setRobotState(level, {chest: chestEmoji});
+  }
+}
+function triggerSmash(chestEmoji) {
+  setRobotState('smash', {chest: chestEmoji});
+  showAchievementToast();
+  triggerGlassBreak('robot-crack');
+  triggerGlassBreak('cam-crack');
+}
+function showAchievementToast() {
+  const t = $('achievement-toast');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 5000);
+}
+function crackSVG() {
+  return `<svg viewBox="0 0 300 280" preserveAspectRatio="none">
+    <polygon class="shard" points="0,0 120,0 90,80 20,60"/>
+    <polygon class="shard" points="120,0 300,0 300,90 150,110 90,80"/>
+    <polygon class="shard" points="0,0 20,60 0,160"/>
+    <polygon class="shard" points="0,160 20,60 90,80 60,180 0,220"/>
+    <polygon class="shard" points="90,80 150,110 140,200 60,180"/>
+    <polygon class="shard" points="150,110 300,90 300,220 180,240 140,200"/>
+    <polygon class="shard" points="0,220 60,180 90,260 0,280"/>
+    <polygon class="shard" points="60,180 140,200 180,240 120,280 90,260"/>
+    <polygon class="shard" points="180,240 300,220 300,280 120,280"/>
+    <line class="crackline" x1="150" y1="130" x2="20" y2="60"/>
+    <line class="crackline" x1="150" y1="130" x2="300" y2="90"/>
+    <line class="crackline" x1="150" y1="130" x2="60" y2="180"/>
+    <line class="crackline" x1="150" y1="130" x2="180" y2="240"/>
+    <line class="crackline" x1="150" y1="130" x2="90" y2="260"/>
+    <line class="crackline" x1="150" y1="130" x2="150" y2="0"/>
+  </svg>`;
+}
+function triggerGlassBreak(elId) {
+  const el = $(elId);
+  el.innerHTML = crackSVG();
+  el.classList.remove('active'); void el.offsetWidth;
+  el.classList.add('active');
+  setTimeout(() => el.classList.remove('active'), 6000);
+}
+
+// ════════════════════════════════════════════════════════════════
+// USERNAME / IDENTITY
+// ════════════════════════════════════════════════════════════════
+function showModal(err) { $('username-modal').classList.remove('hidden'); if (err) $('username-error').textContent = err; }
+function hideModal() { $('username-modal').classList.add('hidden'); }
+
+function applyIdentity(username, stats, rank) {
+  currentUser = username;
+  $('user-chip').classList.remove('hidden');
+  $('user-avatar').textContent = username[0].toUpperCase();
+  $('user-avatar-2').textContent = username[0].toUpperCase();
+  $('user-name-label').textContent = username;
+  $('user-streak-label').textContent = 'Streak ' + (stats ? stats.current_streak : 0);
+  $('player-panel-name').textContent = username;
+  updateStatsPanel(stats, rank);
+  $('btn-start').disabled = !canStartRound();
+}
+
+async function claimUsername(username, token) {
+  const r = await fetch('/api/player/claim', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ username, token })
+  });
+  const data = await r.json();
+  return { ok: r.ok, ...data };
+}
+
+$('btn-start-playing').addEventListener('click', async () => {
+  const name = $('username-input').value.trim();
+  if (!/^[A-Za-z0-9_]{3,16}$/.test(name)) {
+    $('username-error').textContent = 'Username must be 3-16 characters: letters, numbers, underscores.';
+    return;
+  }
+  $('btn-start-playing').disabled = true;
+  const res = await claimUsername(name, null);
+  $('btn-start-playing').disabled = false;
+  if (!res.ok) { $('username-error').textContent = res.error || 'Something went wrong.'; return; }
+  localStorage.setItem('rps_username', res.stats.username);
+  localStorage.setItem('rps_token', res.token);
+  applyIdentity(res.stats.username, res.stats, res.rank);
+  hideModal();
+});
+$('username-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-start-playing').click(); });
+
+async function tryResumeIdentity() {
+  const savedUser = localStorage.getItem('rps_username');
+  const savedToken = localStorage.getItem('rps_token');
+  if (!savedUser || !savedToken) { showModal(); return; }
+  const res = await claimUsername(savedUser, savedToken);
+  if (res.ok) { applyIdentity(res.stats.username, res.stats, res.rank); hideModal(); }
+  else { localStorage.removeItem('rps_username'); localStorage.removeItem('rps_token'); showModal(); }
+}
+
+// ════════════════════════════════════════════════════════════════
+// SIDEBAR NAVIGATION (Arena / Leaderboard -- Robot Lab is a real link)
+// ════════════════════════════════════════════════════════════════
+document.querySelectorAll('.nav-item[data-tab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item[data-tab]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    $('view-play').classList.toggle('hidden', tab !== 'play');
+    $('view-leaderboard').classList.toggle('hidden', tab !== 'leaderboard');
+    $('breadcrumb-current').textContent = tab === 'leaderboard' ? 'Leaderboard' : 'The Arena';
+    if (tab === 'leaderboard') loadLeaderboard();
+    $('sidebar').classList.remove('open');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════
+// INPUT MODE: Buttons vs Webcam
+// ════════════════════════════════════════════════════════════════
+function canStartRound() {
+  if (!currentUser) return false;
+  return inputMode === 'webcam' ? cameraRunning : !!selectedButtonMove;
+}
+
+function setInputMode(mode) {
+  inputMode = mode;
+  document.querySelectorAll('#input-toggle button').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+  $('webcam-input-area').classList.toggle('hidden', mode !== 'webcam');
+  $('buttons-stage-area').classList.toggle('hidden', mode !== 'buttons');
+  $('move-buttons').classList.toggle('hidden', mode !== 'buttons');
+  $('cam-status-wrap').classList.toggle('hidden', mode !== 'webcam');
+  $('btn-cam-toggle').classList.toggle('hidden', mode !== 'webcam');
+  $('camera-select').classList.toggle('hidden', mode !== 'webcam');
+  $('gesture-label').textContent = mode === 'webcam'
+    ? (cameraRunning ? 'No gesture' : 'Enable your camera to play')
+    : (selectedButtonMove ? GESTURES[selectedButtonMove].label + ' selected' : 'Pick a move below');
+  $('btn-start').disabled = !canStartRound();
+}
+document.querySelectorAll('#input-toggle button').forEach(b => b.addEventListener('click', () => setInputMode(b.dataset.mode)));
+setInputMode('buttons');
+
+function selectButtonMove(move) {
+  selectedButtonMove = move;
+  document.querySelectorAll('.move-btn').forEach(b => b.classList.toggle('selected', b.dataset.move === move));
+  const icon = $('human-hand-icon');
+  icon.querySelector('path').setAttribute('d', HAND_PATHS[move]);
+  icon.classList.add('filled');
+  $('human-hand-caption').textContent = GESTURES[move].label + ' ready. Hit play!';
+  $('gesture-label').textContent = GESTURES[move].label + ' selected';
+  $('btn-start').disabled = !canStartRound();
+}
+document.querySelectorAll('.move-btn').forEach(b => b.addEventListener('click', () => {
+  if (b.disabled) return;
+  selectButtonMove(b.dataset.move);
+}));
+
+document.addEventListener('keydown', (e) => {
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (inputMode !== 'buttons') return;
+  const keyMove = { '1':'rock', '2':'paper', '3':'scissors' }[e.key];
+  if (keyMove) {
+    const btn = document.querySelector(`.move-btn[data-move="${keyMove}"]`);
+    if (btn && !btn.disabled) selectButtonMove(keyMove);
+  } else if (e.key === ' ') {
+    e.preventDefault();
+    if (!$('btn-start').disabled) $('btn-start').click();
+  }
+});
+
+function resetButtonSelection() {
+  selectedButtonMove = null;
+  document.querySelectorAll('.move-btn').forEach(b => b.classList.remove('selected'));
+  const icon = $('human-hand-icon');
+  icon.querySelector('path').setAttribute('d', HAND_PATHS.scissors);
+  icon.classList.remove('filled');
+  $('human-hand-caption').textContent = '100% human. Probably.';
+}
+
+// ════════════════════════════════════════════════════════════════
+// CAMERA (webcam mode only)
+// ════════════════════════════════════════════════════════════════
+async function toggleCamera() {
+  if (!cameraRunning) {
+    const idx = parseInt($('camera-select').value) || 0;
+    const r = await fetch('/api/camera/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({index: idx}) });
+    const data = await r.json();
+    if (!data.ok) { alert('Camera error: ' + (data.error || 'unknown')); return; }
+    cameraRunning = true;
+    $('cam-dot').style.background = 'var(--accent)';
+    $('cam-text').textContent = 'Camera on';
+    $('btn-cam-toggle').textContent = 'Stop camera';
+    $('camera-feed').style.display = 'block';
+    $('cam-placeholder').style.display = 'none';
+    $('gesture-label').textContent = 'No gesture';
+    startFramePolling();
+  } else {
+    await fetch('/api/camera/stop', {method:'POST'});
+    cameraRunning = false;
+    $('cam-dot').style.background = 'var(--dim2)';
+    $('cam-text').textContent = 'Camera off';
+    $('btn-cam-toggle').textContent = 'Start camera';
+    $('camera-feed').style.display = 'none';
+    $('cam-placeholder').style.display = 'flex';
+    $('gesture-label').textContent = 'Enable your camera to play';
+    stopFramePolling();
+  }
+  $('btn-start').disabled = !canStartRound();
+}
+$('btn-cam-toggle').addEventListener('click', toggleCamera);
+$('btn-enable-cam').addEventListener('click', toggleCamera);
+
+function startFramePolling() {
+  frameTimer = setInterval(async () => {
+    if (!cameraRunning) return;
+    try {
+      const r = await fetch('/api/frame');
+      const data = await r.json();
+      if (data.frame) $('camera-feed').src = 'data:image/jpeg;base64,' + data.frame;
+      if (gestureLockedDisplay) return;
+      const canonical = data.gesture && MEDIAPIPE_TO_GESTURE[data.gesture];
+      if (canonical) {
+        const g = GESTURES[canonical];
+        $('gesture-chip').innerHTML = handIcon(canonical, 14) + ' ' + g.label; $('gesture-chip').className = 'gesture-chip';
+        $('gesture-label').innerHTML = handIcon(canonical, 14) + ' ' + g.label;
+      } else {
+        $('gesture-chip').textContent = 'No gesture'; $('gesture-chip').className = 'gesture-chip none';
+        $('gesture-label').textContent = 'No gesture';
+      }
+    } catch(e) {}
+  }, 90);
+}
+function stopFramePolling() { if (frameTimer) { clearInterval(frameTimer); frameTimer = null; } }
+
+// ════════════════════════════════════════════════════════════════
+// GAME FLOW -- pure renderer of the backend's authoritative state machine
+// (idle -> countdown -> detecting -> locked -> revealing -> result/game_over).
+// See src/game_session.py. A completed round is only ever processed once,
+// keyed on round_id, never on any client-side timer.
+// ════════════════════════════════════════════════════════════════
+function setStep(name) {
+  const idx = STEP_ORDER.indexOf(name);
+  document.querySelectorAll('.step').forEach((el, i) => {
+    el.classList.toggle('active', i === idx);
+    el.classList.toggle('done', i < idx);
+  });
+}
+
+$('btn-start').addEventListener('click', () => startGame(btnStartIsNewSession));
+
+async function pollStatus() {
+  try { const r = await fetch('/api/game/status'); handleStatus(await r.json()); } catch(e) {}
+}
+
+function handleStatus(data) {
+  const target = MODE_TARGET[data.mode || ''] || 1;
+  $('target-robot').textContent = target;
+  $('target-you').textContent = target;
+  const roundNumber = (data.state === 'result' || data.state === 'game_over') ? data.session_round : data.session_round + 1;
+  $('round-tag-inline').textContent = roundNumber;
+  $('score-robot').textContent = data.session_losses;
+  $('score-you').textContent = data.session_wins;
+
+  if (data.state === 'countdown') {
+    setStep('countdown');
+    if (data.countdown !== lastCountdownShown) {
+      lastCountdownShown = data.countdown;
+      $('vs-badge').className = 'vs-badge count';
+      $('vs-badge').textContent = data.countdown;
+    }
+    return;
+  }
+  if (data.state === 'detecting') {
+    setStep('detecting');
+    $('vs-badge').className = 'vs-badge count';
+    $('vs-badge').textContent = '•••';
+    return;
+  }
+  if (data.state === 'locked') {
+    setStep('locked');
+    $('vs-badge').innerHTML = icon('lock', 18);
+    gestureLockedDisplay = true;
+    if (data.player_move && inputMode === 'webcam') {
+      const g = GESTURES[data.player_move];
+      $('gesture-chip').innerHTML = icon('lock', 12) + ' Locked: ' + handIcon(data.player_move, 14) + ' ' + g.label; $('gesture-chip').className = 'gesture-chip';
+      $('gesture-label').textContent = 'Locked: ' + g.label;
+    }
+    return;
+  }
+  if (data.state === 'revealing') {
+    setStep('revealing');
+    setRobotState('reveal', {caption: ROBOT_CAPTIONS.reveal});
+    return;
+  }
+  if (data.state === 'result' || data.state === 'game_over') {
+    setStep('result');
+    if (data.round_id !== lastSeenRoundId) {
+      lastSeenRoundId = data.round_id;
+      clearInterval(statusTimer);
+      showRoundResult(data);
+    }
+    return;
+  }
+  // idle
+  setStep('ready');
+  $('btn-start').disabled = !canStartRound();
+}
+
+function showRoundResult(data) {
+  const ai = GESTURES[data.ai_move] || {icon:null, label:'?', hint:''};
+  const player = GESTURES[data.player_move] || {icon:null, label:'?', hint:''};
+
+  $('robot-move-label').textContent = ai.label;
+
+  // Reflect the player's own revealed move in the human panel -- the hand
+  // icon in Buttons mode, or the gesture label in Webcam mode.
+  if (inputMode === 'buttons') {
+    const handSvg = $('human-hand-icon');
+    if (HAND_PATHS[data.player_move]) handSvg.querySelector('path').setAttribute('d', HAND_PATHS[data.player_move]);
+    handSvg.classList.add('filled');
+    $('human-hand-caption').textContent = player.label + ' revealed';
+  }
+  $('gesture-label').innerHTML = player.label + ' ' + handIcon(data.player_move, 14);
+
+  $('vs-badge').className = 'vs-badge ' + (data.outcome === 'win' ? 'win' : data.outcome === 'draw' ? 'draw' : 'loss');
+  $('vs-badge').textContent = data.outcome === 'win' ? 'WIN' : data.outcome === 'loss' || data.outcome === 'forfeit' ? 'LOSS' : 'DRAW';
+
+  const stats = data.stats || {};
+  reactToOutcome(data.outcome, stats.current_streak || 0, stats.achievement, ai.icon);
+  if (stats.username) {
+    updateStatsPanel(stats, null);
+    refreshRank();
+    updateHistory(stats.history);
+    $('user-streak-label').textContent = 'Streak ' + stats.current_streak;
+  }
+
+  if (data.result) {
+    $('status-label').textContent = 'RESULT';
+    $('status-headline').textContent = data.outcome === 'forfeit' ? 'You forfeited' :
+      (data.outcome === 'win' ? 'You win the round' : data.outcome === 'draw' ? "It's a draw" : 'The robot wins');
+    $('status-headline').className = 'status-headline ' + (data.outcome === 'win' ? 'win' : data.outcome === 'draw' ? 'draw' : 'loss');
+    $('status-desc').textContent = data.result.sub;
+  }
+
+  if (data.state === 'game_over') {
+    const won = data.session_wins > data.session_losses;
+    $('status-label').textContent = 'MATCH OVER';
+    $('status-headline').textContent = won ? 'You win the match!' : 'The robot wins the match!';
+    $('status-headline').className = 'status-headline ' + (won ? 'win' : 'loss');
+    $('status-desc').textContent = 'Start a new match to keep playing — your win streak carries over.';
+    $('btn-start').textContent = 'Start match';
+    btnStartIsNewSession = true;
+  } else {
+    $('btn-start').textContent = 'Next round';
+    btnStartIsNewSession = false;
+  }
+  if (inputMode === 'buttons') resetButtonSelection();
+  $('btn-start').disabled = !canStartRound();
+}
+
+async function startGame(newSession) {
+  if (!canStartRound()) return;
+  const mode = $('mode-select').value;
+  const body = { mode: mode || null, new_session: newSession, input_mode: inputMode };
+  if (inputMode === 'buttons') body.move = selectedButtonMove;
+
+  $('btn-start').disabled = true;
+  gestureLockedDisplay = false;
+  $('vs-badge').className = 'vs-badge'; $('vs-badge').textContent = 'VS';
+  $('robot-move-label').textContent = 'Hidden';
+  if (inputMode === 'webcam') { $('gesture-chip').textContent = 'No gesture'; $('gesture-chip').className = 'gesture-chip none'; }
+  setStep('countdown');
+  setRobotState('thinking');
+
+  const r = await fetch('/api/game/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const data = await r.json();
+  if (!data.ok) { alert(data.error || 'Could not start game'); $('btn-start').disabled = !canStartRound(); return; }
+  clearInterval(statusTimer);
+  statusTimer = setInterval(pollStatus, 150);
+}
+
+// ════════════════════════════════════════════════════════════════
+// STATS PANEL + 10-WIN CHALLENGE CARD
+// ════════════════════════════════════════════════════════════════
+function updateStatsPanel(stats, rank) {
+  if (!stats) return;
+  $('stat-current-streak').textContent = stats.current_streak;
+  $('stat-best').textContent = stats.best_streak;
+  $('stat-wins').textContent = stats.total_wins;
+  $('stat-losses').textContent = stats.total_losses;
+  $('stat-winrate').textContent = stats.win_rate + '%';
+  $('stat-wl-sub').textContent = `${stats.total_wins} wins · ${stats.total_losses} losses`;
+  if (rank !== null && rank !== undefined) $('stat-rank').textContent = rank ? '#' + rank : 'Unranked';
+
+  const challengeProgress = Math.min(stats.current_streak, 10);
+  $('challenge-bar-fill').style.width = (challengeProgress * 10) + '%';
+  $('challenge-count').textContent = challengeProgress + '/10';
+  $('sync-chip').textContent = 'Synced';
+}
+
+async function refreshRank() {
+  try {
+    const r = await fetch('/api/player/me');
+    const data = await r.json();
+    if (data.stats) $('stat-rank').textContent = data.rank ? '#' + data.rank : 'Unranked';
+  } catch(e) {}
+}
+
+function updateHistory(history) {
+  if (!history || history.length === 0) return;
+  const box = $('history-list');
+  box.innerHTML = '';
+  history.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'hist-row';
+    const pIcon = handIcon(r.player, 14) || '?';
+    const aIcon = handIcon(r.ai, 14) || '?';
+    row.innerHTML = `<span class="hist-left"><span class="hist-num">#${r.round}</span>${pIcon} vs ${aIcon}</span>
+      <span class="hist-outcome oc-${r.outcome}">${r.outcome.toUpperCase()}</span>`;
+    box.appendChild(row);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+// LEADERBOARD
+// ════════════════════════════════════════════════════════════════
+let lbSearchDebounce = null;
+let currentLbSort = 'streak';
+const LB_COLUMN_LABEL = { streak: 'Streak', wins: 'Wins', winrate: 'Win rate' };
+
+document.querySelectorAll('#lb-sort-tabs .tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#lb-sort-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentLbSort = btn.dataset.sort;
+    loadLeaderboard($('lb-search-input').value.trim());
+  });
+});
+
+async function loadLeaderboard(search) {
+  const body = $('lb-body');
+  body.innerHTML = '<div class="lb-state"><div class="spinner"></div>Loading leaderboard…</div>';
+  $('lb-head-row').innerHTML = `<span>#</span><span>Player</span><span style="text-align:right">${LB_COLUMN_LABEL[currentLbSort]}</span><span style="text-align:right">Wins</span>`;
+  try {
+    const params = new URLSearchParams({ sort: currentLbSort });
+    if (search) params.set('search', search);
+    const r = await fetch('/api/leaderboard?' + params.toString());
+    const data = await r.json();
+    $('lb-source-note').textContent = data.source === 'online' ? 'Live from the global database.' : 'Local-only — configure Supabase for a real global leaderboard (see README).';
+
+    const winrateNote = $('lb-winrate-note');
+    if (currentLbSort === 'winrate') {
+      winrateNote.textContent = `Ranked by win rate among players with at least ${data.min_rounds_for_winrate} completed rounds, so one lucky game can't top the board.`;
+      winrateNote.classList.remove('hidden');
+    } else { winrateNote.classList.add('hidden'); }
+
+    if (!data.rows || data.rows.length === 0) {
+      body.innerHTML = currentLbSort === 'winrate'
+        ? `<div class="lb-state">No one has played ${data.min_rounds_for_winrate}+ rounds yet. Keep playing to qualify!</div>`
+        : '<div class="lb-state">No players yet. Be the first on the board!</div>';
+      return;
+    }
+    body.innerHTML = '';
+    data.rows.forEach(row => {
+      const div = document.createElement('div');
+      let cls = 'lb-table-row';
+      if (row.is_you) cls += ' you';
+      else if (row.rank === 1) cls += ' top1'; else if (row.rank === 2) cls += ' top2'; else if (row.rank === 3) cls += ' top3';
+      div.className = cls;
+      const rankDisplay = row.rank === 1
+        ? `<span class="lb-rank medal">${icon('trophy', 14)}</span>`
+        : `<span class="lb-rank">${row.rank}</span>`;
+      const primaryStat = currentLbSort === 'streak' ? row.best_streak : currentLbSort === 'winrate' ? row.win_rate + '%' : row.total_wins;
+      div.innerHTML = `${rankDisplay}<span class="lb-name">${row.username}${row.is_you ? '<span class="lb-you-badge">YOU</span>' : ''}</span>
+        <span class="lb-streak">${primaryStat}</span><span class="lb-wins">${row.total_wins}</span>`;
+      body.appendChild(div);
+    });
+  } catch(e) { body.innerHTML = '<div class="lb-state">Could not load the leaderboard. Try refreshing.</div>'; }
+}
+$('btn-lb-refresh').addEventListener('click', () => loadLeaderboard($('lb-search-input').value.trim()));
+$('lb-search-input').addEventListener('input', () => {
+  clearTimeout(lbSearchDebounce);
+  lbSearchDebounce = setTimeout(() => loadLeaderboard($('lb-search-input').value.trim()), 300);
+});
+
+// ════════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════════
+(async () => { await tryResumeIdentity(); })();
+</script>
+</body>
+</html>

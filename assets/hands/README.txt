@@ -1,0 +1,1 @@
+AI hand illustrations are rendered as emoji (rock/paper/scissors) directly in the UI for portability. Drop rock.png/paper.png/scissors.png here and update templates/index.html's emojiMap if you prefer custom art.

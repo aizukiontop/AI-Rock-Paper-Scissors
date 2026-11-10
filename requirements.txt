@@ -1,0 +1,17 @@
+Flask>=3.0.0
+requests>=2.31.0
+gunicorn>=21.2.0
+
+# opencv-python, mediapipe, numpy, and Pillow used to be required here for
+# server-side webcam capture. That code path (src/camera.py,
+# src/gesture_recognizer.py, src/model_downloader.py) is no longer wired
+# into the live app -- gesture detection now runs in the player's own
+# browser instead (see frontend/src/useCamera.ts) -- so nothing in the
+# live import graph touches those packages anymore (verified by walking
+# every module actually reachable from main.py). They've been removed
+# from here because they're large, native-dependency-heavy packages that
+# are a common cause of build/deploy failures on minimal PaaS images
+# (opencv-python in particular often needs system libraries, like
+# libGL.so.1, that slim buildpacks don't include by default). If you want
+# to revive that old code path for local/offline use, install them with:
+#   pip install opencv-python mediapipe numpy Pillow
