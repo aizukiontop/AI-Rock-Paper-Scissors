@@ -14,6 +14,8 @@ leaderboard for displaying player scores.
 **GitHub Repository:**
 https://github.com/aizukiontop/AI-Rock-Paper-Scissors
 
+![A screenshot of the main screen](website_screenshot.png)
+
 ## Features
 
 -   **Real-Time Hand Gesture Recognition** --- Use your webcam to detect
