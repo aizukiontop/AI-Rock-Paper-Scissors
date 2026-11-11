@@ -10,6 +10,7 @@ simple button clicks. It features a full game arena, a global leaderboard,
 and a Robot Lab for customizing your opponent.
 
 **Live Demo:** https://ai-rock-paper-scissors.fly.dev/
+
 **GitHub Repository:** https://github.com/aizukiontop/AI-Rock-Paper-Scissors
 ![A screenshot of the main screen](website_screenshot.png)
 ---
